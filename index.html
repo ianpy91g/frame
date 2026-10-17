@@ -67,7 +67,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 33; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 34; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -190,12 +190,16 @@ function loadList(done, why) {
   var report = '&v=' + VERSION + '&sa=' + (navigator.standalone ? 1 : 0) +
     '&up=' + Math.round((new Date().getTime() - loadedAt) / 60000) + '&n=' + ids.length +
     '&pos=' + pos + '/' + order.length + '&aw=' + (isAwake() ? 1 : 0) + '&rs=' + awakeRestarts + '&mu=' + (musicOn ? 1 : 0) + '&why=' + (why || 'timer');
+  var gen = catGen;
   api('action=list&cat=' + encodeURIComponent(CATEGORY) + report, function (data) {
+    if (gen !== catGen) return; // 讀清單期間換了相簿：這份是舊相簿的，丟掉
     for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
     if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
     if (!CONFIG.music && musicOn) stopMusic();
+    // 設定頁改過設定：不重新載入（音樂不中斷），直接套用並重排播放順序
+    var settingsChanged = false;
     if (loadedApplyId === null) loadedApplyId = CONFIG.applyId || 0;
-    else if ((CONFIG.applyId || 0) !== loadedApplyId) return reloadFresh(); // 設定頁改過設定
+    else if ((CONFIG.applyId || 0) !== loadedApplyId) { loadedApplyId = CONFIG.applyId || 0; settingsChanged = true; }
     var first = ids.length === 0;
     var old = ids;
     ids = data.ids || [];
@@ -206,8 +210,15 @@ function loadList(done, why) {
     tick();
     if (!ids.length) { msg('資料夾裡沒有照片'); setTimeout(function () { loadList(done, 'retry'); }, 60000); return; }
     if (first) buildRound();
+    if (settingsChanged && !first) {
+      buildRound();                                    // 分組、每組張數、播放方式可能變了
+      if (!fetching) { pending = null; prefetch(); }   // 下一張就照新順序
+      startListTimer();                                // 重新讀清單的間隔可能變了
+      if (CONFIG.music && !tracks.length) loadMusic(); // 剛打開背景音樂
+    }
     if (done) done();
   }, function (err) {
+    if (gen !== catGen) return;
     if (!started) msg('讀取資料夾失敗，1 分鐘後重試<br><small>' + err + '</small>');
     setTimeout(function () { loadList(done, 'retry'); }, 60000);
   });
@@ -216,15 +227,17 @@ function loadList(done, why) {
 // 預先抓下一張照片，抓好後解碼完成才算準備好
 function prefetch() {
   if (pos >= order.length) buildRound();
-  var id = order[pos++];
+  var id = order[pos++], gen = catGen;
+  if (!id) return;
   fetching = true;
   api('action=photo&id=' + encodeURIComponent(id), function (data) {
+    if (gen !== catGen) return; // 換相簿前就開始下載的舊照片：丟掉
     data.photo.id = id;
     var img = new Image();
-    img.onload = function () { fetching = false; pending = data.photo; if (waiting) advance(); };
-    img.onerror = function () { fetching = false; setTimeout(prefetch, 1000); };
+    img.onload = function () { if (gen !== catGen) return; fetching = false; pending = data.photo; if (waiting) advance(); };
+    img.onerror = function () { if (gen !== catGen) return; fetching = false; setTimeout(prefetch, 1000); };
     img.src = data.photo.src;
-  }, function () { fetching = false; setTimeout(prefetch, 5000); });
+  }, function () { if (gen !== catGen) return; fetching = false; setTimeout(prefetch, 5000); });
 }
 
 // 最近顯示過的照片（點兩下可以退回），histPos 指向目前顯示的那張
@@ -291,7 +304,7 @@ function resume() {
   if (musicPaused) {
     musicPaused = false;
     try { var p = $('bgm').play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
-  }
+  } else maybeStartMusic();
   timer = setTimeout(advance, CONFIG.intervalSec * 1000);
 }
 
@@ -326,12 +339,16 @@ function showPhoto(photo) {
 }
 
 // 每分鐘問伺服器一次：設定頁儲存過（applyId 變了）或有新版網頁，就重新載入套用
-var loadedApplyId = null;
+var loadedApplyId = null, listTimer = null;
+function startListTimer() {
+  clearInterval(listTimer);
+  listTimer = setInterval(function () { loadList(null, 'timer'); }, CONFIG.refreshListMin * 60000);
+}
 setInterval(function () {
   if (loadedApplyId === null) return;
   api('action=ping', function (d) {
-    if ((d.applyId || 0) !== loadedApplyId) reloadFresh();
-    else if (d.webVersion > VERSION && !triedVersion(d.webVersion)) reloadFresh();
+    if (d.webVersion > VERSION && !triedVersion(d.webVersion)) reloadFresh();  // 新版網頁：重新載入
+    else if ((d.applyId || 0) !== loadedApplyId) loadList(null, 'settings');    // 設定改了：重讀清單並套用
   }, function () {});
 }, 60000);
 
@@ -458,7 +475,7 @@ function allowSleep() {
 function updateAwakeHint() {
   awake = isAwake();
   var night = document.body.className === 'sleeping', text = '';
-  if (started && !night && musicReady()) text = '點一下畫面開始播放音樂';
+  if (started && !night && musicReady() && !audioUnlocked) text = '點一下畫面開始播放音樂';
   else if (started && !night && noSleep && !awake) text = '點一下畫面，讓螢幕保持亮著';
   $('awakeHint').innerHTML = text;
   $('awakeHint').style.display = text ? 'block' : 'none';
@@ -475,25 +492,29 @@ function musicReady() { return CONFIG.music && !musicOn && !musicWaiting && !!ne
 var trackFails = 0;
 function loadMusic() {
   if (!CONFIG.music) return;
+  var gen = catGen;
   api('action=music&cat=' + encodeURIComponent(CATEGORY), function (d) {
+    if (gen !== catGen) return;
     tracks = shuffleList(d.tracks || []);
     trackIdx = 0;
     trackFails = 0;
     fetchTrack();
-  }, function () { setTimeout(loadMusic, 60000); });
+  }, function () { if (gen === catGen) setTimeout(loadMusic, 60000); });
 }
 function fetchTrack() {
   if (!tracks.length || nextTrack || fetchingTrack) return;
   if (trackIdx >= tracks.length) return loadMusic(); // 一輪播完：重讀清單
-  var t = tracks[trackIdx];
+  var t = tracks[trackIdx], gen = catGen;
   fetchingTrack = true;
   api('action=audio&id=' + encodeURIComponent(t.id), function (d) {
+    if (gen !== catGen) return;
     fetchingTrack = false;
     trackFails = 0;
     nextTrack = d.src;
     if (musicWaiting) { musicWaiting = false; return playNextTrack(); }
-    updateAwakeHint();
+    maybeStartMusic(); // 播放器已經被觸碰解鎖過：下載好就自動開始
   }, function () {
+    if (gen !== catGen) return;
     // 這首讀不到（例如已經從資料夾刪掉）：跳過換下一首；連續失敗太多次就稍後重讀清單
     fetchingTrack = false;
     trackIdx++;
@@ -522,13 +543,52 @@ function playNextTrack() {
   updateAwakeHint();
 }
 function stopMusic() {
-  try { $('bgm').pause(); } catch (e) {}
+  if (musicOn || musicPaused) { try { $('bgm').pause(); } catch (e) {} } // 只停真的音樂，不中斷解鎖用的無聲音訊
   musicOn = false;
   musicPaused = false;
   musicWaiting = false;
   updateAwakeHint();
 }
-$('bgm').addEventListener('ended', playNextTrack);
+$('bgm').addEventListener('ended', function () { if (musicOn) playNextTrack(); }); // 解鎖用的無聲音訊播完不算
+
+// iOS 規定有聲音的播放要在觸碰當下開始，但播放器只要被觸碰「解鎖」過一次，之後換曲、播放都不用再碰。
+// 所以第一次觸碰（點、滑、選相簿、點 ✕…）就先播一小段無聲音訊解鎖，音樂下載好就自動開始。
+var SILENT = 'data:audio/mpeg;base64,//NAxAAAAANIAAAAAExBTUU0LjBVVVVVVVVVVVVVVVVMQU1FNC4wVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/80LEWwAAA0gAAAAAVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FNC4wVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/80DEpAAAA0gAAAAAVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUU0LjBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsSjAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUU0LjBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTQuMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NCxKMAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTQuMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NAxKQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/80LEowAAA0gAAAAAVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=';
+var audioUnlocked = false;
+function unlockAudio() {
+  if (audioUnlocked || musicOn) return;
+  var a = $('bgm');
+  try {
+    a.src = SILENT;
+    var p = a.play();
+    audioUnlocked = true;
+    // 被中斷（AbortError：例如馬上換成真正的音樂、或換相簿）也算解鎖成功；其他錯誤才算失敗
+    if (p && p.catch) p.catch(function (err) {
+      if (err && err.name === 'AbortError') return;
+      audioUnlocked = false; updateAwakeHint();
+    });
+    maybeStartMusic(); // 不用等無聲音訊播完：音樂已經下載好就立刻換成音樂播放
+  } catch (e) { audioUnlocked = false; }
+}
+function maybeStartMusic() {
+  if (audioUnlocked && CONFIG.music && !musicOn && !paused && nextTrack && document.body.className !== 'sleeping') playNextTrack();
+  updateAwakeHint();
+}
+
+// 換相簿：不重新載入頁面，觸碰解鎖過的播放器也就保留下來，照片和音樂直接換成新相簿
+var catGen = 0;
+function switchCategory(id) {
+  CATEGORY = id;
+  try { localStorage.setItem('frameCategory', id); } catch (e) {}
+  catGen++;
+  ids = []; groups = []; plays = {}; order = []; pos = 0;
+  pending = null; fetching = false; waiting = false; shown = []; histPos = -1;
+  clearTimeout(timer);
+  paused = false; $('pause').style.display = 'none';
+  stopMusic();
+  tracks = []; nextTrack = null; trackIdx = 0; fetchingTrack = false;
+  loadList(function () { waiting = true; prefetch(); loadMusic(); }, 'switch');
+}
 
 // 點一下：嘗試全螢幕並換下一張（下一張還沒載好就等載好立刻換）
 function onTap() {
@@ -541,8 +601,7 @@ function onTap() {
   if (document.body.className === 'sleeping') showNightMsg(); // 夜間點畫面：顯示夜間提示
   // 暫停中點一下：恢復播放。要在點擊當下恢復（音樂需要使用者手勢），所以第一下就先處理
   if (!taps && paused) { resume(); return; }
-  // 還沒開始音樂時，第一下順便開始音樂（iOS 規定要在點擊當下開始播放）；這一下仍算進連點次數
-  if (!taps && started && musicReady() && document.body.className !== 'sleeping') playNextTrack();
+  unlockAudio(); // 第一次觸碰解鎖播放器，音樂好了就自動開始
   // 連點計數：每兩下間隔 0.3 秒內算同一串；停下來後依次數動作
   taps++;
   clearTimeout(tapTimer);
@@ -572,6 +631,7 @@ function swipeOf(e) {
 }
 // 電腦：← → 換照片，空白鍵暫停／恢復
 document.addEventListener('keydown', function (e) {
+  unlockAudio();
   if (pickerOpen()) return;
   if (e.keyCode === 39) showNext();
   else if (e.keyCode === 37) showPrev();
@@ -580,6 +640,7 @@ document.addEventListener('keydown', function (e) {
 // iOS Safari 點一般區域不會觸發 click，所以也監聽觸控；preventDefault 避免觸控後又補發一次 click。
 // 分類選單打開時不攔截，讓下拉選單和按鈕可以正常操作。
 document.addEventListener('touchend', function (e) {
+  unlockAudio(); // 任何觸碰（含相簿選單裡的點擊）都先解鎖播放器
   if (pickerOpen()) return;
   e.preventDefault();
   var swipe = swipeOf(e);
@@ -593,7 +654,7 @@ document.addEventListener('touchend', function (e) {
   }
   onTap();
 }, false);
-document.addEventListener('click', function () { if (!pickerOpen()) onTap(); }, false);
+document.addEventListener('click', function () { unlockAudio(); if (!pickerOpen()) onTap(); }, false);
 
 // ---------- 分類選單 ----------
 // 分類 = 相框資料夾第一層的子資料夾，各有自己的照片和 Music。選擇記在 localStorage，自動重新載入時沿用。
@@ -644,12 +705,14 @@ function hidePicker() {
 $('catPicker').onclick = function (e) {
   if (e.target !== this) return;
   if (e.stopPropagation) e.stopPropagation();
+  unlockAudio();
   hidePicker();
 };
 
 // 右上角 ✕：取消，照目前的相簿繼續播
 $('catClose').onclick = function (e) {
   if (e.stopPropagation) e.stopPropagation();
+  unlockAudio();
   hidePicker();
 };
 
@@ -657,10 +720,9 @@ $('catClose').onclick = function (e) {
 function chooseCategory(e) {
   if (e && e.stopPropagation) e.stopPropagation();
   var chosen = this.getAttribute('data-id') || '';
-  try { localStorage.setItem('frameCategory', chosen); } catch (err) {}
+  unlockAudio(); // 點相簿的這一下就解鎖播放器，選好後照片和音樂一起開始
   hidePicker();
-  if (chosen !== CATEGORY) return reloadFresh();
-  if (started && musicReady() && document.body.className !== 'sleeping') playNextTrack();
+  if (chosen !== CATEGORY) return switchCategory(chosen);
 }
 // 回到畫面上（切回 Safari / 主畫面 app、解鎖）時立刻重新讀清單；在背景時計時器會暫停，不能只靠定時更新
 document.addEventListener('visibilitychange', function () {
@@ -711,7 +773,7 @@ if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(API)) {
   loadList(function () {
     waiting = true;
     prefetch();
-    setInterval(function () { loadList(null, 'timer'); }, CONFIG.refreshListMin * 60000);
+    startListTimer();
     loadMusic();
   }, 'start');
 }
