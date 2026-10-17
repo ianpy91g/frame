@@ -61,7 +61,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 25; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 26; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -538,7 +538,7 @@ function showPicker(countdown) {
   $('catList').innerHTML = '';
   $('catHint').innerHTML = '讀取分類中…';
   api('action=categories', function (d) {
-    var items = [{ id: '', name: '全部', count: d.total }].concat(d.categories), found = false, i;
+    var items = [{ id: '', name: '全部' }].concat(d.categories), found = false, i;
     for (i = 0; i < items.length; i++) if (items[i].id === CATEGORY) found = true;
     var current = found ? CATEGORY : '';
     $('catList').innerHTML = '';
@@ -546,7 +546,7 @@ function showPicker(countdown) {
       var el = document.createElement('div');
       el.setAttribute('data-id', items[i].id);
       el.className = items[i].id === current ? 'current' : '';
-      el.appendChild(document.createTextNode(items[i].name + '（' + items[i].count + ' 張）'));
+      el.appendChild(document.createTextNode(items[i].name));
       el.onclick = chooseCategory;
       catNames[items[i].id] = items[i].name;
       $('catList').appendChild(el);
