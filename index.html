@@ -28,6 +28,8 @@
     margin-top: -14px; padding: 0 20px; line-height: 1.6; }
   #sleep { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000; display: none; }
   body.sleeping #sleep { display: block; }
+  #awakeHint { position: absolute; left: 20px; top: 24px; display: none; color: #fff; font-size: 15px;
+    opacity: 0.75; text-shadow: 0 1px 6px rgba(0,0,0,0.9); }
   #pause { position: absolute; left: 36px; bottom: 30px; display: none; opacity: 0.85;
     -webkit-filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); }
   #pause span { display: inline-block; width: 8px; height: 30px; margin-right: 8px; background: #fff; border-radius: 2px; }
@@ -38,12 +40,14 @@
 <div class="slide" id="s1"><div class="bg"></div><div class="fg"></div></div>
 <div id="taken"><div id="takenDate"></div><div id="takenTime"></div></div>
 <div id="msg">載入中…</div>
+<div id="awakeHint">點一下畫面，讓螢幕保持亮著</div>
 <div id="pause"><span></span><span></span></div>
 <div id="sleep"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 15; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 16; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -168,7 +172,7 @@ function refreshOrder(old) {
 function loadList(done, why) {
   var report = '&v=' + VERSION + '&sa=' + (navigator.standalone ? 1 : 0) +
     '&up=' + Math.round((new Date().getTime() - loadedAt) / 60000) + '&n=' + ids.length +
-    '&pos=' + pos + '/' + order.length + '&why=' + (why || 'timer');
+    '&pos=' + pos + '/' + order.length + '&aw=' + (awake ? 1 : 0) + '&why=' + (why || 'timer');
   api('action=list' + report, function (data) {
     for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
     if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
@@ -217,7 +221,7 @@ function advance() {
   }
   if (!pending) { waiting = true; return; }
   waiting = false;
-  started = true;
+  if (!started) { started = true; updateAwakeHint(); }
   var photo = pending;
   pending = null;
   markSeen(photo.id);
@@ -331,14 +335,34 @@ function tick() {
   var from = CONFIG.sleepFrom, to = CONFIG.sleepTo;
   var sleeping = from !== to && (from < to ? (h >= from && h < to) : (h >= from || h < to));
   if (wasSleeping && !sleeping) return reloadFresh(); // 每天夜間黑畫面結束時重新載入一次
+  if (sleeping && !wasSleeping) allowSleep();        // 進入夜間：讓 iPad 自動鎖定、關螢幕
   wasSleeping = sleeping;
   document.body.className = sleeping ? 'sleeping' : '';
+  updateAwakeHint();
 }
 
+// 讓螢幕保持亮著：NoSleep.js 在新瀏覽器用 Wake Lock，在舊版 iOS 播放一段隱藏的無聲小影片。
+// iOS 規定要在使用者點擊的當下才能開始播放，所以 keepAwake() 要在點擊事件裡呼叫才會成功。
+// 晚上黑畫面時段停止（allowSleep），讓 iPad 依「自動鎖定」時間關掉螢幕省電。
+var noSleep = null, awake = false;
+try { if (window.NoSleep) noSleep = new NoSleep(); } catch (e) {}
 function keepAwake() {
+  if (!noSleep || awake || document.body.className === 'sleeping') return updateAwakeHint();
   try {
-    if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {});
-  } catch (e) {}
+    var p = noSleep.enable();
+    awake = true;
+    if (p && p.then) p.then(updateAwakeHint, function () { awake = false; updateAwakeHint(); });
+  } catch (e) { awake = false; }
+  updateAwakeHint();
+}
+function allowSleep() {
+  if (noSleep && awake) { try { noSleep.disable(); } catch (e) {} }
+  awake = false;
+  updateAwakeHint();
+}
+function updateAwakeHint() {
+  var show = noSleep && !awake && started && document.body.className !== 'sleeping';
+  $('awakeHint').style.display = show ? 'block' : 'none';
 }
 
 // 點一下：嘗試全螢幕並換下一張（下一張還沒載好就等載好立刻換）
