@@ -37,11 +37,12 @@
 <div class="slide" id="s1"><div class="bg"></div><div class="fg"></div></div>
 <div id="photoDate"></div>
 <div id="clock"><div id="time"></div><div id="day"></div></div>
-<div id="msg">載入中…（v7）</div>
+<div id="msg">載入中…</div>
 <div id="sleep"></div>
 
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
+var VERSION = 8; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true, showClock: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -121,6 +122,7 @@ function loadList(done) {
     // 有新照片時，丟掉已預載的舊照片，讓下一張直接是新照片
     if (!first && mergeOrder(old) && !fetching) { pending = null; prefetch(); }
     for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
+    if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
     tick();
     if (!ids.length) { msg('資料夾裡沒有照片'); setTimeout(function () { loadList(done); }, 60000); return; }
     if (first) reshuffle();
@@ -184,6 +186,34 @@ function advance() {
   timer = setTimeout(advance, CONFIG.intervalSec * 1000);
 }
 
+// 整頁重新載入；網址加時間參數避開快取（iOS 主畫面 app 會快取網頁）
+function reloadFresh() {
+  var search = location.search.replace(/&_r=\d+/, '');
+  location.replace(location.pathname + search + (search ? '&' : '?') + '_r=' + new Date().getTime());
+}
+
+// 每個新版本只自動重新載入一次，避免網站還沒更新好時無限重新載入
+function triedVersion(v) {
+  try {
+    if (localStorage.getItem('frameTriedVersion') === String(v)) return true;
+    localStorage.setItem('frameTriedVersion', String(v));
+    return false;
+  } catch (e) {
+    return true; // 無法記錄就不自動重新載入
+  }
+}
+
+// iOS 主畫面 app 切到背景再回來時不會重新載入，回到畫面的事件也不一定觸發；
+// 改用時間差判斷：計時器兩次之間隔太久，代表曾被暫停在背景，直接整頁重新載入。
+// 頁面載入不到 2 分鐘不會因此重新載入，就算誤判也不會變成快速循環。
+var loadedAt = new Date().getTime(), lastBeat = loadedAt;
+setInterval(function () {
+  var now = new Date().getTime();
+  if (now - lastBeat > 60000 && now - loadedAt > 120000) reloadFresh();
+  lastBeat = now;
+}, 10000);
+
+var wasSleeping = false;
 function tick() {
   var d = new Date(), h = d.getHours();
   if (CONFIG.showClock) {
@@ -199,6 +229,8 @@ function tick() {
   }
   var from = CONFIG.sleepFrom, to = CONFIG.sleepTo;
   var sleeping = from !== to && (from < to ? (h >= from && h < to) : (h >= from || h < to));
+  if (wasSleeping && !sleeping) return reloadFresh(); // 每天夜間黑畫面結束時重新載入一次
+  wasSleeping = sleeping;
   document.body.className = sleeping ? 'sleeping' : '';
 }
 
@@ -248,6 +280,7 @@ fit();
 window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', function () { fit(); setTimeout(fit, 500); });
 
+msg('載入中…（v' + VERSION + '）');
 tick();
 setInterval(tick, 10000);
 keepAwake();
