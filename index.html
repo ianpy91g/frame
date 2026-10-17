@@ -42,11 +42,11 @@
 
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 8; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 9; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true, showClock: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
-var ids = [], order = [], pos = 0;
+var ids = [], groups = [], order = [], pos = 0;
 var slides = [document.getElementById('s0'), document.getElementById('s1')];
 var cur = 1;
 var pending = null, waiting = false, timer = null, started = false, fetching = false;
@@ -84,48 +84,86 @@ function api(query, ok, fail) {
   document.body.appendChild(s);
 }
 
-function reshuffle() {
-  order = ids.slice();
-  if (CONFIG.shuffle) {
-    for (var i = order.length - 1; i > 0; i--) {
-      var j = Math.floor(Math.random() * (i + 1));
-      var t = order[i]; order[i] = order[j]; order[j] = t;
-    }
+function shuffleList(a) {
+  for (var i = a.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = a[i]; a[i] = a[j]; a[j] = t;
   }
-  pos = 0;
+  return a;
 }
 
-// 重新讀到清單時：刪掉的照片移出播放順序，新照片插到下一張開始播
-// （隨機模式下新照片之間隨機排，否則維持清單的最新優先順序）
-function mergeOrder(old) {
-  var known = {}, current = {}, i;
+// 播過的照片記在 localStorage，重新載入也不會忘；用來判斷哪些是「新照片」
+var seen = {};
+try { seen = JSON.parse(localStorage.getItem('frameSeen') || '{}') || {}; } catch (e) {}
+function markSeen(id) {
+  if (!id || seen[id]) return;
+  seen[id] = 1;
+  var keep = {}; // 只保留目前資料夾裡還有的照片
+  for (var i = 0; i < ids.length; i++) if (seen[ids[i]]) keep[ids[i]] = 1;
+  seen = keep;
+  try { localStorage.setItem('frameSeen', JSON.stringify(seen)); } catch (e) {}
+}
+
+// 從 arr 平均挑 k 張（隨機起點），維持原本順序
+function spread(arr, k) {
+  var out = [], r = Math.random();
+  for (var i = 0; i < k; i++) out.push(arr[Math.floor((i + r) * arr.length / k)]);
+  return out;
+}
+
+// 一組最多挑 max 張：優先挑還沒播過的，不夠再從播過的平均補，結果維持拍攝時間順序
+function pickFromGroup(list, max) {
+  if (list.length <= max) return list.slice();
+  var unseen = [], old = [], chosen = {}, i;
+  for (i = 0; i < list.length; i++) (seen[list[i]] ? old : unseen).push(list[i]);
+  var pick = unseen.length >= max ? spread(unseen, max) : unseen.concat(spread(old, max - unseen.length));
+  for (i = 0; i < pick.length; i++) chosen[pick[i]] = true;
+  var out = [];
+  for (i = 0; i < list.length; i++) if (chosen[list[i]]) out.push(list[i]);
+  return out;
+}
+
+// 排一輪的播放順序：有新照片的組（依最新上傳）排最前面，其他組隨機；組內依拍攝時間
+function buildRound() {
+  pos = 0;
+  if (CONFIG.shuffle || !groups.length) { order = CONFIG.shuffle ? shuffleList(ids.slice()) : ids.slice(); return; }
+  var fresh = [], rest = [], i, j;
+  for (i = 0; i < groups.length; i++) {
+    var hasNew = false;
+    for (j = 0; j < groups[i].ids.length; j++) if (!seen[groups[i].ids[j]]) { hasNew = true; break; }
+    (hasNew ? fresh : rest).push(groups[i]);
+  }
+  var list = fresh.concat(shuffleList(rest));
+  order = [];
+  for (i = 0; i < list.length; i++) order = order.concat(pickFromGroup(list[i].ids, CONFIG.maxPerGroup || 30));
+}
+
+// 重新讀到清單時：有新照片就重排一輪（新照片的組會排最前面）；只有刪除就把刪掉的移出順序
+function refreshOrder(old) {
+  var known = {}, current = {}, i, added = 0;
   for (i = 0; i < old.length; i++) known[old[i]] = true;
-  for (i = 0; i < ids.length; i++) current[ids[i]] = true;
-  var fresh = [];
-  for (i = 0; i < ids.length; i++) if (!known[ids[i]]) fresh.push(ids[i]);
+  for (i = 0; i < ids.length; i++) { current[ids[i]] = true; if (!known[ids[i]]) added++; }
+  if (added) { buildRound(); return added; }
   var rest = [];
   for (i = pos; i < order.length; i++) if (current[order[i]]) rest.push(order[i]);
-  for (i = fresh.length - 1; CONFIG.shuffle && i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
-    var t = fresh[i]; fresh[i] = fresh[j]; fresh[j] = t;
-  }
-  order = fresh.concat(rest);
+  order = rest;
   pos = 0;
-  return fresh.length;
+  return 0;
 }
 
 function loadList(done) {
   api('action=list', function (data) {
+    for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
+    if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
     var first = ids.length === 0;
     var old = ids;
     ids = data.ids || [];
+    groups = data.groups || [];
     // 有新照片時，丟掉已預載的舊照片，讓下一張直接是新照片
-    if (!first && mergeOrder(old) && !fetching) { pending = null; prefetch(); }
-    for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
-    if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
+    if (!first && refreshOrder(old) && !fetching) { pending = null; prefetch(); }
     tick();
     if (!ids.length) { msg('資料夾裡沒有照片'); setTimeout(function () { loadList(done); }, 60000); return; }
-    if (first) reshuffle();
+    if (first) buildRound();
     if (done) done();
   }, function (err) {
     if (!started) msg('讀取資料夾失敗，1 分鐘後重試<br><small>' + err + '</small>');
@@ -135,10 +173,11 @@ function loadList(done) {
 
 // 預先抓下一張照片，抓好後解碼完成才算準備好
 function prefetch() {
-  if (pos >= order.length) reshuffle();
+  if (pos >= order.length) buildRound();
   var id = order[pos++];
   fetching = true;
   api('action=photo&id=' + encodeURIComponent(id), function (data) {
+    data.photo.id = id;
     var img = new Image();
     img.onload = function () { fetching = false; pending = data.photo; if (waiting) advance(); };
     img.onerror = function () { fetching = false; setTimeout(prefetch, 1000); };
@@ -154,6 +193,7 @@ function advance() {
   started = true;
   var photo = pending;
   pending = null;
+  markSeen(photo.id);
 
   var next = slides[1 - cur], old = slides[cur];
   var url = 'url("' + photo.src + '")';
