@@ -47,7 +47,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 17; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 18; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -346,6 +346,16 @@ function tick() {
 // 晚上黑畫面時段停止（allowSleep），讓 iPad 依「自動鎖定」時間關掉螢幕省電。
 var noSleep = null, awake = false;
 try { if (window.NoSleep) noSleep = new NoSleep(); } catch (e) {}
+// iOS 可能只認「真的在畫面上播放」的影片：把隱藏影片放進畫面（2×2 像素、幾乎透明，看不到）
+try {
+  if (noSleep && noSleep.noSleepVideo) {
+    var nsv = noSleep.noSleepVideo;
+    nsv.setAttribute('playsinline', '');
+    nsv.setAttribute('webkit-playsinline', '');
+    nsv.style.cssText = 'position:absolute;left:0;bottom:0;width:2px;height:2px;opacity:0.01;pointer-events:none;';
+    document.body.appendChild(nsv);
+  }
+} catch (e) {}
 // 每次點擊都重新嘗試（iOS 沒點過畫面時的播放會被拒絕）；狀態以「影片實際上有沒有在播」為準
 function keepAwake() {
   if (!noSleep || document.body.className === 'sleeping') return updateAwakeHint();
