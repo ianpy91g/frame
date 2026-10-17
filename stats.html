@@ -44,6 +44,7 @@
 <div class="wrap">
   <h1>相框播放統計</h1>
   <div class="sub" id="sub">載入中…</div>
+  <div class="bar-row" id="catRow"><span>分類</span></div>
   <div class="cards" id="cards"></div>
   <div class="bar-row">
     <span>排序</span>
@@ -64,7 +65,7 @@ function param(name) {
   return m ? decodeURIComponent(m[1]) : '';
 }
 var API = param('api'), KEY = param('key');
-var photos = [], sortBy = 'most', thumbs = {}, thumbQueue = [], thumbActive = 0;
+var photos = [], cats = [], catFilter = '', sortBy = 'most', thumbs = {}, thumbQueue = [], thumbActive = 0;
 
 var seq = 0;
 function api(query, ok, fail) {
@@ -84,19 +85,48 @@ function load() {
   $('msg').innerHTML = '讀取中…（照片多時要幾秒）';
   api('action=stats', function (d) {
     photos = d.photos || [];
+    cats = d.categories || [];
+    buildCatRow();
     $('msg').innerHTML = photos.length ? '' : '資料夾裡沒有照片';
     var now = new Date();
     $('sub').innerHTML = '更新於 ' + now.getHours() + ':' + ('0' + now.getMinutes()).slice(-2) +
-      '　·　所有裝置合計　·　預先載入的照片偶爾會多算一次';
+      '　·　所有裝置合計　·　組別是在各分類內分組（同相框播放）';
     summary();
     render();
   }, function (err) { $('msg').innerHTML = '讀取失敗：' + esc(err); });
 }
 
+// 分類篩選按鈕：全部 + 各分類
+function buildCatRow() {
+  var row = $('catRow'), list = [{ id: '', name: '全部' }].concat(cats);
+  if (catFilter && !cats.some(function (c) { return c.id === catFilter; })) catFilter = '';
+  row.innerHTML = '<span>分類</span>';
+  for (var i = 0; i < list.length; i++) {
+    var b = document.createElement('button');
+    b.setAttribute('data-cat', list[i].id);
+    b.className = list[i].id === catFilter ? 'on' : '';
+    b.appendChild(document.createTextNode(list[i].name));
+    b.onclick = function () {
+      catFilter = this.getAttribute('data-cat');
+      buildCatRow();
+      summary();
+      render();
+    };
+    row.appendChild(b);
+  }
+}
+
+function filtered() {
+  if (!catFilter) return photos;
+  var out = [];
+  for (var i = 0; i < photos.length; i++) if (photos[i].cat === catFilter) out.push(photos[i]);
+  return out;
+}
+
 function summary() {
-  var n = photos.length, total = 0, max = 0, min = Infinity, zero = 0;
+  var list = filtered(), n = list.length, total = 0, max = 0, min = Infinity, zero = 0;
   for (var i = 0; i < n; i++) {
-    var p = photos[i].plays;
+    var p = list[i].plays;
     total += p; if (p > max) max = p; if (p < min) min = p; if (!p) zero++;
   }
   if (!n) min = 0;
@@ -107,30 +137,30 @@ function summary() {
 }
 
 function sorted() {
-  var list = photos.slice();
+  var list = filtered().slice();
   var byTaken = function (a, b) { return (a.taken || a.uploaded) < (b.taken || b.uploaded) ? -1 : 1; };
   list.sort({
     most: function (a, b) { return b.plays - a.plays || byTaken(a, b); },
     least: function (a, b) { return a.plays - b.plays || byTaken(a, b); },
     taken: function (a, b) { return -byTaken(a, b); },
-    group: function (a, b) { return a.group - b.group || byTaken(a, b); }
+    group: function (a, b) { return (a.catName < b.catName ? -1 : a.catName > b.catName ? 1 : 0) || a.group - b.group || byTaken(a, b); }
   }[sortBy]);
   return list;
 }
 
 function render() {
   var list = sorted(), max = 1, html = '', lastGroup = null, i;
-  for (i = 0; i < photos.length; i++) if (photos[i].plays > max) max = photos[i].plays;
+  for (i = 0; i < list.length; i++) if (list[i].plays > max) max = list[i].plays;
   for (i = 0; i < list.length; i++) {
     var p = list[i];
-    if (sortBy === 'group' && p.group !== lastGroup) {
-      lastGroup = p.group;
-      html += '<div class="group-head">第 ' + p.group + ' 組</div>';
+    if (sortBy === 'group' && p.cat + '/' + p.group !== lastGroup) {
+      lastGroup = p.cat + '/' + p.group;
+      html += '<div class="group-head">' + esc(p.catName) + '　·　第 ' + p.group + ' 組</div>';
     }
     html += '<div class="row">' +
       '<div class="thumb" id="t_' + p.id + '"' + (thumbs[p.id] ? ' style="background-image:url(' + thumbs[p.id] + ')"' : '') + '></div>' +
       '<div class="info"><div class="name">' + esc(p.name) + '</div>' +
-      '<div class="meta">' + (p.taken ? '拍攝 ' + esc(p.taken) : '無拍攝時間') + '　·　第 ' + p.group + ' 組</div></div>' +
+      '<div class="meta">' + esc(p.catName) + '　·　第 ' + p.group + ' 組　·　' + (p.taken ? '拍攝 ' + esc(p.taken) : '無拍攝時間') + '</div></div>' +
       '<div class="count"><div class="count-num">' + p.plays + ' 次</div>' +
       '<div class="track"><div class="fill" style="width:' + (p.plays / max * 100).toFixed(1) + '%"></div></div></div>' +
       '</div>';
