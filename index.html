@@ -156,16 +156,22 @@ function advance() {
   var url = 'url("' + photo.src + '")';
   next.children[0].style.backgroundImage = CONFIG.blurBackground ? url : 'none';
   next.children[1].style.backgroundImage = url;
-  next.className = 'slide on';
+  next.className = 'slide';
   if (CONFIG.kenBurns) {
-    void next.offsetWidth; // 重新觸發動畫
+    void next.offsetWidth; // 先移除再加回 zoom，讓放大動畫從頭開始
     next.children[1].style.webkitAnimationDuration = next.children[1].style.animationDuration =
-      (CONFIG.intervalSec + 2) + 's';
+      (CONFIG.intervalSec + 4) + 's';
     next.className = 'slide on zoom';
+  } else {
+    next.className = 'slide on';
   }
-  old.className = 'slide';
-  setTimeout(function () { // 淡出完成後釋放舊照片的記憶體
-    if (old.className === 'slide') { old.children[0].style.backgroundImage = old.children[1].style.backgroundImage = 'none'; }
+  // 舊照片保留 zoom，淡出時維持放大狀態，不會突然縮回
+  old.className = CONFIG.kenBurns ? 'slide zoom' : 'slide';
+  setTimeout(function () { // 淡出完成後才重置動畫、釋放舊照片的記憶體
+    if (old.className.indexOf('on') < 0) {
+      old.className = 'slide';
+      old.children[0].style.backgroundImage = old.children[1].style.backgroundImage = 'none';
+    }
   }, 2500);
   cur = 1 - cur;
 
