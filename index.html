@@ -20,12 +20,10 @@
     top: -60px; left: -60px; right: -60px; bottom: -60px; }
   .fg { background-size: contain; -webkit-transform: scale(1); transform: scale(1); }
 
-  #clock { position: absolute; right: 36px; bottom: 28px; color: #fff; text-align: right;
+  #taken { position: absolute; right: 36px; bottom: 28px; color: #fff; text-align: right; display: none;
     text-shadow: 0 2px 12px rgba(0,0,0,0.8); }
-  #time { font-size: 64px; font-weight: 300; line-height: 1; }
-  #day { font-size: 20px; margin-top: 6px; opacity: 0.85; }
-  #photoDate { position: absolute; left: 36px; bottom: 30px; color: #fff; font-size: 16px; opacity: 0.7;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.8); }
+  #takenDate { font-size: 52px; font-weight: 300; line-height: 1; }
+  #takenTime { font-size: 20px; margin-top: 8px; opacity: 0.85; }
   #msg { position: absolute; top: 50%; left: 0; right: 0; text-align: center; color: #aaa; font-size: 20px;
     margin-top: -14px; padding: 0 20px; line-height: 1.6; }
   #sleep { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000; display: none; }
@@ -35,15 +33,14 @@
 <body>
 <div class="slide" id="s0"><div class="bg"></div><div class="fg"></div></div>
 <div class="slide" id="s1"><div class="bg"></div><div class="fg"></div></div>
-<div id="photoDate"></div>
-<div id="clock"><div id="time"></div><div id="day"></div></div>
+<div id="taken"><div id="takenDate"></div><div id="takenTime"></div></div>
 <div id="msg">載入中…</div>
 <div id="sleep"></div>
 
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 9; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
-var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true, showClock: true,
+var VERSION = 10; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
 var ids = [], groups = [], order = [], pos = 0;
@@ -220,7 +217,7 @@ function advance() {
   }, 2500);
   cur = 1 - cur;
 
-  $('photoDate').innerHTML = CONFIG.showPhotoDate && photo.date ? photo.date.replace(/-/g, ' / ') : '';
+  showTaken(photo.date);
   msg('');
   prefetch();
   timer = setTimeout(advance, CONFIG.intervalSec * 1000);
@@ -253,20 +250,23 @@ setInterval(function () {
   lastBeat = now;
 }, 10000);
 
+// 右下角顯示拍攝日期時間："2026-05-27 16:57" → 大字 2026/05/27，小字 星期三　16:57
+function showTaken(s) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?/.exec(s || '');
+  if (!CONFIG.showPhotoDate || !m) { $('taken').style.display = 'none'; return; }
+  var day = new Date(+m[1], +m[2] - 1, +m[3]).getDay();
+  $('takenDate').innerHTML = m[1] + '/' + m[2] + '/' + m[3];
+  $('takenTime').innerHTML = '星期' + WEEK[day] + (m[4] ? '　' + m[4] + ':' + m[5] : '');
+  $('taken').style.display = 'block';
+}
+
 var wasSleeping = false;
 function tick() {
   var d = new Date(), h = d.getHours();
-  if (CONFIG.showClock) {
-    $('clock').style.display = 'block';
-    $('time').innerHTML = pad(h) + ':' + pad(d.getMinutes());
-    $('day').innerHTML = (d.getMonth() + 1) + '月' + d.getDate() + '日　星期' + WEEK[d.getDay()];
-    // 每小時稍微移動位置，避免烙印
-    var shift = (h % 4) * 6;
-    $('clock').style.right = (36 + shift) + 'px';
-    $('clock').style.bottom = (28 + shift) + 'px';
-  } else {
-    $('clock').style.display = 'none';
-  }
+  // 每小時稍微移動拍攝日期的位置，避免烙印
+  var shift = (h % 4) * 6;
+  $('taken').style.right = (36 + shift) + 'px';
+  $('taken').style.bottom = (28 + shift) + 'px';
   var from = CONFIG.sleepFrom, to = CONFIG.sleepTo;
   var sleeping = from !== to && (from < to ? (h >= from && h < to) : (h >= from || h < to));
   if (wasSleeping && !sleeping) return reloadFresh(); // 每天夜間黑畫面結束時重新載入一次
