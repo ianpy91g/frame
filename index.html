@@ -40,14 +40,15 @@
 <div class="slide" id="s1"><div class="bg"></div><div class="fg"></div></div>
 <div id="taken"><div id="takenDate"></div><div id="takenTime"></div></div>
 <div id="msg">載入中…</div>
-<div id="awakeHint">點一下畫面，讓螢幕保持亮著</div>
+<div id="awakeHint"></div>
+<audio id="bgm" preload="auto"></audio>
 <div id="pause"><span></span><span></span></div>
 <div id="sleep"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 19; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 20; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -172,10 +173,11 @@ function refreshOrder(old) {
 function loadList(done, why) {
   var report = '&v=' + VERSION + '&sa=' + (navigator.standalone ? 1 : 0) +
     '&up=' + Math.round((new Date().getTime() - loadedAt) / 60000) + '&n=' + ids.length +
-    '&pos=' + pos + '/' + order.length + '&aw=' + (isAwake() ? 1 : 0) + '&rs=' + awakeRestarts + '&why=' + (why || 'timer');
+    '&pos=' + pos + '/' + order.length + '&aw=' + (isAwake() ? 1 : 0) + '&rs=' + awakeRestarts + '&mu=' + (musicOn ? 1 : 0) + '&why=' + (why || 'timer');
   api('action=list' + report, function (data) {
     for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
     if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
+    if (!CONFIG.music && musicOn) stopMusic();
     var first = ids.length === 0;
     var old = ids;
     ids = data.ids || [];
@@ -335,7 +337,7 @@ function tick() {
   var from = CONFIG.sleepFrom, to = CONFIG.sleepTo;
   var sleeping = from !== to && (from < to ? (h >= from && h < to) : (h >= from || h < to));
   if (wasSleeping && !sleeping) return reloadFresh(); // 每天夜間黑畫面結束時重新載入一次
-  if (sleeping && !wasSleeping) allowSleep();        // 進入夜間：讓 iPad 自動鎖定、關螢幕
+  if (sleeping && !wasSleeping) { allowSleep(); stopMusic(); } // 進入夜間：停音樂、讓 iPad 自動鎖定關螢幕
   wasSleeping = sleeping;
   document.body.className = sleeping ? 'sleeping' : '';
   updateAwakeHint();
@@ -393,9 +395,58 @@ function allowSleep() {
 }
 function updateAwakeHint() {
   awake = isAwake();
-  var show = noSleep && !awake && started && document.body.className !== 'sleeping';
-  $('awakeHint').style.display = show ? 'block' : 'none';
+  var night = document.body.className === 'sleeping', text = '';
+  if (started && !night && musicReady()) text = '點一下畫面開始播放音樂';
+  else if (started && !night && noSleep && !awake) text = '點一下畫面，讓螢幕保持亮著';
+  $('awakeHint').innerHTML = text;
+  $('awakeHint').style.display = text ? 'block' : 'none';
 }
+
+// ---------- 背景音樂 ----------
+// 音樂放在相框資料夾的 Music 子資料夾。iOS 規定有聲音的播放必須在點擊當下開始，
+// 所以先把下一首預先下載好，點一下畫面時立刻播放；播完自動接下一首，晚上黑畫面時段停止。
+// （iOS 不能用程式調音量，請用 iPad 的音量鍵。）
+var tracks = [], trackIdx = 0, nextTrack = null, musicOn = false, fetchingTrack = false, playSeq = 0;
+function musicReady() { return CONFIG.music && !musicOn && !!nextTrack; }
+function loadMusic() {
+  if (!CONFIG.music || tracks.length) return;
+  api('action=music', function (d) {
+    tracks = shuffleList(d.tracks || []);
+    fetchTrack();
+  }, function () { setTimeout(loadMusic, 60000); });
+}
+function fetchTrack() {
+  if (!tracks.length || nextTrack || fetchingTrack) return;
+  var t = tracks[trackIdx % tracks.length];
+  fetchingTrack = true;
+  api('action=audio&id=' + encodeURIComponent(t.id), function (d) {
+    fetchingTrack = false;
+    nextTrack = d.src;
+    updateAwakeHint();
+  }, function () { fetchingTrack = false; setTimeout(fetchTrack, 30000); });
+}
+function playNextTrack() {
+  var a = $('bgm');
+  if (!nextTrack) { musicOn = false; return updateAwakeHint(); }
+  a.src = nextTrack;
+  nextTrack = null;
+  trackIdx++;
+  musicOn = true;
+  // 換曲時上一首的播放請求會被中斷而報錯；只有「最新這次」失敗才算停止
+  var token = ++playSeq;
+  try {
+    var p = a.play();
+    if (p && p.catch) p.catch(function () { if (token === playSeq) { musicOn = false; updateAwakeHint(); } });
+  } catch (e) { musicOn = false; }
+  fetchTrack();
+  updateAwakeHint();
+}
+function stopMusic() {
+  try { $('bgm').pause(); } catch (e) {}
+  musicOn = false;
+  updateAwakeHint();
+}
+$('bgm').addEventListener('ended', playNextTrack);
 
 // 點一下：嘗試全螢幕並換下一張（下一張還沒載好就等載好立刻換）
 function onTap() {
@@ -406,6 +457,7 @@ function onTap() {
   }
   keepAwake();
   if (!started) return;
+  if (musicReady() && document.body.className !== 'sleeping') { playNextTrack(); return; }
   // 0.3 秒內點第二下算「點兩下」；所以點一下要等 0.3 秒確認沒有第二下才動作
   if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; goBack(); return; }
   tapTimer = setTimeout(function () {
@@ -456,6 +508,7 @@ if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(API)) {
     waiting = true;
     prefetch();
     setInterval(function () { loadList(null, 'timer'); }, CONFIG.refreshListMin * 60000);
+    loadMusic();
   }, 'start');
 }
 </script>
