@@ -39,7 +39,7 @@
 
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 12; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 13; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -148,8 +148,12 @@ function refreshOrder(old) {
   return 0;
 }
 
-function loadList(done) {
-  api('action=list', function (data) {
+// why：這次要清單的原因（start / timer / visible / pageshow / retry），連同狀態回報給伺服器做遠端診斷
+function loadList(done, why) {
+  var report = '&v=' + VERSION + '&sa=' + (navigator.standalone ? 1 : 0) +
+    '&up=' + Math.round((new Date().getTime() - loadedAt) / 60000) + '&n=' + ids.length +
+    '&pos=' + pos + '/' + order.length + '&why=' + (why || 'timer');
+  api('action=list' + report, function (data) {
     for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
     if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
     var first = ids.length === 0;
@@ -159,12 +163,12 @@ function loadList(done) {
     // 有新照片時，丟掉已預載的舊照片，讓下一張直接是新照片
     if (!first && refreshOrder(old) && !fetching) { pending = null; prefetch(); }
     tick();
-    if (!ids.length) { msg('資料夾裡沒有照片'); setTimeout(function () { loadList(done); }, 60000); return; }
+    if (!ids.length) { msg('資料夾裡沒有照片'); setTimeout(function () { loadList(done, 'retry'); }, 60000); return; }
     if (first) buildRound();
     if (done) done();
   }, function (err) {
     if (!started) msg('讀取資料夾失敗，1 分鐘後重試<br><small>' + err + '</small>');
-    setTimeout(function () { loadList(done); }, 60000);
+    setTimeout(function () { loadList(done, 'retry'); }, 60000);
   });
 }
 
@@ -303,9 +307,9 @@ document.addEventListener('click', onTap, false);
 document.addEventListener('visibilitychange', function () {
   if (document.hidden) return;
   keepAwake();
-  if (ids.length) loadList();
+  if (ids.length) loadList(null, 'visible');
 });
-window.addEventListener('pageshow', function (e) { if (e.persisted && ids.length) loadList(); });
+window.addEventListener('pageshow', function (e) { if (e.persisted && ids.length) loadList(null, 'pageshow'); });
 document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false }); // 避免畫面被拖動
 
 // iOS 主畫面 app 模式（狀態列透明）時，舊版 iOS 回報的高度會少掉狀態列，底部留一條黑邊；
@@ -335,8 +339,8 @@ if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(API)) {
   loadList(function () {
     waiting = true;
     prefetch();
-    setInterval(loadList, CONFIG.refreshListMin * 60000);
-  });
+    setInterval(function () { loadList(null, 'timer'); }, CONFIG.refreshListMin * 60000);
+  }, 'start');
 }
 </script>
 </body>
