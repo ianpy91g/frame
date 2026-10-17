@@ -81,8 +81,10 @@ function api(query, ok, fail) {
 
 function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
-function load() {
-  $('msg').innerHTML = '讀取中…（照片多時要幾秒）';
+// 讀取統計；Google 偶爾會暫時出錯（例如剛部署新版時），失敗會自動重試，最多 3 次
+function load(attempt) {
+  attempt = attempt || 1;
+  $('msg').innerHTML = '讀取中…（照片多時要幾秒）' + (attempt > 1 ? '　第 ' + attempt + ' 次嘗試' : '');
   api('action=stats', function (d) {
     photos = d.photos || [];
     cats = d.categories || [];
@@ -93,7 +95,10 @@ function load() {
       '　·　所有裝置合計　·　組別是在各分類內分組（同相框播放）';
     summary();
     render();
-  }, function (err) { $('msg').innerHTML = '讀取失敗：' + esc(err); });
+  }, function (err) {
+    if (attempt < 3) return setTimeout(function () { load(attempt + 1); }, 3000);
+    $('msg').innerHTML = '讀取失敗：' + esc(err) + '　<button onclick="load()">再試一次</button>';
+  });
 }
 
 // 分類篩選按鈕：全部 + 各分類
@@ -197,7 +202,7 @@ for (var b = 0; b < buttons.length; b++) {
     render();
   };
 }
-$('reload').onclick = load;
+$('reload').onclick = function () { load(); };
 
 if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(API)) {
   $('sub').innerHTML = '';

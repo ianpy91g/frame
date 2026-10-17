@@ -192,13 +192,22 @@ $('defaults').onclick = function () {
 if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(API)) {
   $('sub').innerHTML = '網址缺少 api 參數。格式：settings.html?api=Apps Script 網頁應用程式網址';
 } else {
+  loadSettings(1);
+}
+
+// 讀取設定；Google 偶爾會暫時出錯（例如剛部署新版時），失敗會自動重試，最多 3 次
+function loadSettings(attempt) {
+  $('sub').innerHTML = '讀取目前設定中…' + (attempt > 1 ? '　第 ' + attempt + ' 次嘗試' : '');
   api('action=settings', function (d) {
     schema = d.schema; defaults = d.defaults;
     setForm(d.values);
     $('pwRow').style.display = d.needPassword ? 'block' : 'none';
     form.style.display = 'block';
     $('sub').innerHTML = '修改後按「儲存並套用」，相框約 1 分鐘內生效。';
-  }, function (err) { $('sub').innerHTML = '讀取設定失敗：' + err; });
+  }, function (err) {
+    if (attempt < 3) return setTimeout(function () { loadSettings(attempt + 1); }, 3000);
+    $('sub').innerHTML = '讀取設定失敗：' + err + '　<button onclick="loadSettings(1)">再試一次</button>';
+  });
 }
 </script>
 </body>
