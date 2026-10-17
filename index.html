@@ -48,7 +48,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 20; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 21; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -407,27 +407,44 @@ function updateAwakeHint() {
 // 所以先把下一首預先下載好，點一下畫面時立刻播放；播完自動接下一首，晚上黑畫面時段停止。
 // （iOS 不能用程式調音量，請用 iPad 的音量鍵。）
 var tracks = [], trackIdx = 0, nextTrack = null, musicOn = false, fetchingTrack = false, playSeq = 0;
-function musicReady() { return CONFIG.music && !musicOn && !!nextTrack; }
+var musicWaiting = false; // 上一首播完、下一首還在下載：下載好就自動接著播
+function musicReady() { return CONFIG.music && !musicOn && !musicWaiting && !!nextTrack; }
+// 讀音樂清單（隨機排序）；每播完一輪會重讀一次，Music 資料夾新增或刪除的曲子下一輪就生效
+var trackFails = 0;
 function loadMusic() {
-  if (!CONFIG.music || tracks.length) return;
+  if (!CONFIG.music) return;
   api('action=music', function (d) {
     tracks = shuffleList(d.tracks || []);
+    trackIdx = 0;
+    trackFails = 0;
     fetchTrack();
   }, function () { setTimeout(loadMusic, 60000); });
 }
 function fetchTrack() {
   if (!tracks.length || nextTrack || fetchingTrack) return;
-  var t = tracks[trackIdx % tracks.length];
+  if (trackIdx >= tracks.length) return loadMusic(); // 一輪播完：重讀清單
+  var t = tracks[trackIdx];
   fetchingTrack = true;
   api('action=audio&id=' + encodeURIComponent(t.id), function (d) {
     fetchingTrack = false;
+    trackFails = 0;
     nextTrack = d.src;
+    if (musicWaiting) { musicWaiting = false; return playNextTrack(); }
     updateAwakeHint();
-  }, function () { fetchingTrack = false; setTimeout(fetchTrack, 30000); });
+  }, function () {
+    // 這首讀不到（例如已經從資料夾刪掉）：跳過換下一首；連續失敗太多次就稍後重讀清單
+    fetchingTrack = false;
+    trackIdx++;
+    if (++trackFails > tracks.length) { trackFails = 0; setTimeout(loadMusic, 60000); return; }
+    setTimeout(fetchTrack, 3000);
+  });
 }
 function playNextTrack() {
   var a = $('bgm');
-  if (!nextTrack) { musicOn = false; return updateAwakeHint(); }
+  if (!nextTrack) {
+    if (musicOn) { musicWaiting = true; fetchTrack(); } // 播放中換曲但下一首還沒好：等它下載完自動播
+    return updateAwakeHint();
+  }
   a.src = nextTrack;
   nextTrack = null;
   trackIdx++;
@@ -444,6 +461,7 @@ function playNextTrack() {
 function stopMusic() {
   try { $('bgm').pause(); } catch (e) {}
   musicOn = false;
+  musicWaiting = false;
   updateAwakeHint();
 }
 $('bgm').addEventListener('ended', playNextTrack);
