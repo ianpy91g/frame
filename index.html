@@ -28,6 +28,9 @@
     margin-top: -14px; padding: 0 20px; line-height: 1.6; }
   #sleep { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000; display: none; }
   body.sleeping #sleep { display: block; }
+  #pause { position: absolute; left: 36px; bottom: 30px; display: none; opacity: 0.85;
+    -webkit-filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); }
+  #pause span { display: inline-block; width: 8px; height: 30px; margin-right: 8px; background: #fff; border-radius: 2px; }
 </style>
 </head>
 <body>
@@ -35,11 +38,12 @@
 <div class="slide" id="s1"><div class="bg"></div><div class="fg"></div></div>
 <div id="taken"><div id="takenDate"></div><div id="takenTime"></div></div>
 <div id="msg">載入中…</div>
+<div id="pause"><span></span><span></span></div>
 <div id="sleep"></div>
 
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 14; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 15; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -198,16 +202,54 @@ function prefetch() {
   }, function () { fetching = false; setTimeout(prefetch, 5000); });
 }
 
+// 最近顯示過的照片（點兩下可以退回），histPos 指向目前顯示的那張
+var shown = [], histPos = -1, paused = false, HISTORY_MAX = 10;
+
 function advance() {
   clearTimeout(timer);
+  if (paused) return;
   if (document.body.className === 'sleeping') { timer = setTimeout(advance, 60000); return; }
+  // 退回去看過舊照片後繼續播：先依序播回退回前看過的那幾張
+  if (histPos < shown.length - 1) {
+    showPhoto(shown[++histPos]);
+    timer = setTimeout(advance, CONFIG.intervalSec * 1000);
+    return;
+  }
   if (!pending) { waiting = true; return; }
   waiting = false;
   started = true;
   var photo = pending;
   pending = null;
   markSeen(photo.id);
+  shown.push(photo);
+  if (shown.length > HISTORY_MAX) shown.shift();
+  histPos = shown.length - 1;
+  showPhoto(photo);
+  prefetch();
+  timer = setTimeout(advance, CONFIG.intervalSec * 1000);
+}
 
+// 點兩下：退回上一張並暫停（暫停時再點兩下可以繼續往前退）
+function goBack() {
+  if (!started) return;
+  if (histPos > 0) showPhoto(shown[--histPos]);
+  pause();
+}
+
+function pause() {
+  paused = true;
+  waiting = false;
+  clearTimeout(timer);
+  $('pause').style.display = 'block';
+}
+
+function resume() {
+  paused = false;
+  $('pause').style.display = 'none';
+  timer = setTimeout(advance, CONFIG.intervalSec * 1000);
+}
+
+function showPhoto(photo) {
   var next = slides[1 - cur], old = slides[cur];
   var url = 'url("' + photo.src + '")';
   next.children[0].style.backgroundImage = CONFIG.blurBackground ? url : 'none';
@@ -235,8 +277,6 @@ function advance() {
 
   showTaken(photo.date);
   msg('');
-  prefetch();
-  timer = setTimeout(advance, CONFIG.intervalSec * 1000);
 }
 
 // 整頁重新載入；網址加時間參數避開快取（iOS 主畫面 app 會快取網頁）
@@ -310,8 +350,16 @@ function onTap() {
   }
   keepAwake();
   if (!started) return;
-  if (pending) advance(); else waiting = true;
+  // 0.3 秒內點第二下算「點兩下」；所以點一下要等 0.3 秒確認沒有第二下才動作
+  if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; goBack(); return; }
+  tapTimer = setTimeout(function () {
+    tapTimer = null;
+    if (paused) resume();                                          // 暫停中點一下：繼續播
+    else if (pending || histPos < shown.length - 1) advance();  // 點一下：下一張
+    else waiting = true;                                           // 下一張還在載入：載好就換
+  }, 300);
 }
+var tapTimer = null;
 // iOS Safari 點一般區域不會觸發 click，所以也監聽觸控；preventDefault 避免觸控後又補發一次 click
 document.addEventListener('touchend', function (e) { e.preventDefault(); onTap(); }, false);
 document.addEventListener('click', onTap, false);
