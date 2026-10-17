@@ -39,7 +39,7 @@
 
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 13; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 14; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -132,7 +132,19 @@ function buildRound() {
   }
   var list = fresh.concat(shuffleList(rest));
   order = [];
-  for (i = 0; i < list.length; i++) order = order.concat(pickFromGroup(list[i].ids, CONFIG.maxPerGroup || 30));
+  for (i = 0; i < list.length; i++) {
+    var picked = pickFromGroup(list[i].ids, CONFIG.maxPerGroup || 30);
+    if (i < fresh.length) picked = startAtFirstNew(picked);
+    order = order.concat(picked);
+  }
+}
+
+// 有新照片的組：從第一張新照片開始播，播到組尾再接回組頭補播前面的（時間順序不亂）
+function startAtFirstNew(list) {
+  for (var i = 0; i < list.length; i++) {
+    if (!seen[list[i]]) return list.slice(i).concat(list.slice(0, i));
+  }
+  return list;
 }
 
 // 重新讀到清單時：有新照片就重排一輪（新照片的組會排最前面）；只有刪除就把刪掉的移出順序
