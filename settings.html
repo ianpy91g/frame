@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>相框設定</title>
+<style>
+  :root { --bg: #f6f6f4; --card: #fff; --text: #222; --dim: #777; --line: #e6e6e2; --accent: #2a6f97; --ok: #2e7d4f; --err: #b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16171a; --card: #202227; --text: #e8e8ea; --dim: #9a9ca3; --line: #2e3036; --accent: #6fb3d9; --ok: #6fcf97; --err: #f28b82; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 18px; }
+  h2 { font-size: 14px; color: var(--dim); font-weight: 600; margin: 22px 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .field { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .field:first-child { border-top: 0; }
+  .label { -webkit-flex: 1; flex: 1; min-width: 0; padding-right: 12px; }
+  .label b { display: block; font-size: 15px; font-weight: 500; }
+  .label span { display: block; color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .label span.changed { color: var(--accent); }
+  input[type=number], select { font: inherit; font-size: 15px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 92px; text-align: right; }
+  select { width: auto; text-align: left; }
+  .switch { position: relative; width: 50px; height: 30px; -webkit-flex: none; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--line); border-radius: 15px; -webkit-transition: .2s; transition: .2s; }
+  .slider:before { content: ""; position: absolute; width: 24px; height: 24px; left: 3px; top: 3px; background: #fff; border-radius: 50%; -webkit-transition: .2s; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  .switch input:checked + .slider { background: var(--accent); }
+  .switch input:checked + .slider:before { -webkit-transform: translateX(20px); transform: translateX(20px); }
+  .actions { margin-top: 22px; display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; -webkit-align-items: center; align-items: center; }
+  button { font: inherit; font-size: 15px; border-radius: 8px; padding: 10px 18px; margin: 0 10px 10px 0; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  #pwRow { display: none; }
+  #result { font-size: 14px; margin-top: 4px; min-height: 20px; }
+  #result.ok { color: var(--ok); } #result.err { color: var(--err); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>相框設定</h1>
+  <div class="sub" id="sub">讀取目前設定中…</div>
+
+  <form id="form" style="display:none" onsubmit="return false">
+    <h2>播放</h2>
+    <div class="card">
+      <div class="field"><div class="label"><b>每張照片停留秒數</b><span data-hint="intervalSec"></span></div><input type="number" name="intervalSec" inputmode="numeric"></div>
+      <div class="field"><div class="label"><b>播放方式</b><span data-hint="shuffle"></span></div>
+        <select name="shuffle"><option value="false">依事件分組</option><option value="true">完全隨機</option></select></div>
+      <div class="field"><div class="label"><b>分組間隔（天）</b><span data-hint="groupGapDays">拍攝時間相隔超過幾天就分成不同組</span></div><input type="number" name="groupGapDays" inputmode="numeric"></div>
+      <div class="field"><div class="label"><b>每組每輪最多張數</b><span data-hint="maxPerGroup">大組只挑播放次數最少的</span></div><input type="number" name="maxPerGroup" inputmode="numeric"></div>
+      <div class="field"><div class="label"><b>重新讀取照片清單（分鐘）</b><span data-hint="refreshListMin">新照片多久會出現</span></div><input type="number" name="refreshListMin" inputmode="numeric"></div>
+    </div>
+
+    <h2>顯示</h2>
+    <div class="card">
+      <div class="field"><div class="label"><b>右下角顯示拍攝日期時間</b><span data-hint="showPhotoDate"></span></div><label class="switch"><input type="checkbox" name="showPhotoDate"><span class="slider"></span></label></div>
+      <div class="field"><div class="label"><b>緩慢放大效果</b><span data-hint="kenBurns">比較耗電</span></div><label class="switch"><input type="checkbox" name="kenBurns"><span class="slider"></span></label></div>
+      <div class="field"><div class="label"><b>直式照片模糊背景</b><span data-hint="blurBackground">比較耗電；關閉時兩側為黑邊</span></div><label class="switch"><input type="checkbox" name="blurBackground"><span class="slider"></span></label></div>
+    </div>
+
+    <h2>夜間（黑畫面並讓 iPad 自動鎖定）</h2>
+    <div class="card">
+      <div class="field"><div class="label"><b>開始</b><span data-hint="sleepFrom">開始和結束設成相同就不啟用</span></div><select name="sleepFrom"></select></div>
+      <div class="field"><div class="label"><b>結束</b><span data-hint="sleepTo"></span></div><select name="sleepTo"></select></div>
+    </div>
+
+    <h2>背景音樂</h2>
+    <div class="card">
+      <div class="field"><div class="label"><b>播放背景音樂</b><span data-hint="music">Music 資料夾裡的 MP3；相框點一下開始</span></div><label class="switch"><input type="checkbox" name="music"><span class="slider"></span></label></div>
+    </div>
+
+    <div class="card" id="pwRow" style="margin-top:22px">
+      <div class="field"><div class="label"><b>管理密碼</b></div><input type="password" id="pw" style="width:160px;text-align:left"></div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="save">儲存並套用</button>
+      <button id="defaults" type="button">全部恢復預設值</button>
+    </div>
+    <div id="result"></div>
+  </form>
+</div>
+<script>
+// 網址格式：settings.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
+function $(id) { return document.getElementById(id); }
+function param(name) {
+  var m = new RegExp('[?&]' + name + '=([^&#]*)').exec(location.search);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+var API = param('api'), KEY = param('key');
+var schema = {}, defaults = {}, form = $('form');
+
+var seq = 0;
+function api(query, ok, fail) {
+  var name = '__set_cb' + (++seq), s = document.createElement('script'), done = false;
+  function cleanup() { done = true; try { delete window[name]; } catch (e) { window[name] = undefined; } if (s.parentNode) s.parentNode.removeChild(s); }
+  window[name] = function (d) { if (done) return; cleanup(); if (d && d.ok) ok(d); else fail((d && d.error) || '未知錯誤'); };
+  s.onerror = function () { if (!done) { cleanup(); fail('連線失敗'); } };
+  setTimeout(function () { if (!done) { cleanup(); fail('逾時'); } }, 60000);
+  s.src = API + (API.indexOf('?') < 0 ? '?' : '&') + query + (KEY ? '&key=' + encodeURIComponent(KEY) : '') +
+    '&callback=' + name + '&_=' + new Date().getTime();
+  document.body.appendChild(s);
+}
+
+function hourOptions(sel) {
+  var html = '';
+  for (var h = 0; h < 24; h++) html += '<option value="' + h + '">' + (h < 10 ? '0' : '') + h + ':00</option>';
+  sel.innerHTML = html;
+}
+hourOptions(form.sleepFrom);
+hourOptions(form.sleepTo);
+
+function fmt(k, v) {
+  if (schema[k].type === 'bool') return k === 'shuffle' ? (v ? '完全隨機' : '依事件分組') : (v ? '開' : '關');
+  if (k === 'sleepFrom' || k === 'sleepTo') return (v < 10 ? '0' : '') + v + ':00';
+  return v;
+}
+
+function setForm(values) {
+  for (var k in schema) {
+    var el = form[k], v = values[k];
+    if (!el) continue;
+    if (el.type === 'checkbox') el.checked = !!v;
+    else el.value = String(v);
+  }
+  updateHints();
+}
+
+function readForm() {
+  var out = {};
+  for (var k in schema) {
+    var el = form[k];
+    if (!el) continue;
+    if (el.type === 'checkbox') out[k] = el.checked;
+    else if (k === 'shuffle') out[k] = el.value === 'true';
+    else out[k] = Number(el.value);
+  }
+  return out;
+}
+
+// 每個欄位下方顯示允許範圍與預設值；跟預設值不同時標示出來
+function updateHints() {
+  var cur = readForm(), hints = document.querySelectorAll('[data-hint]');
+  for (var i = 0; i < hints.length; i++) {
+    var k = hints[i].getAttribute('data-hint'), rule = schema[k];
+    if (!rule) continue;
+    if (!hints[i].getAttribute('data-base')) hints[i].setAttribute('data-base', hints[i].innerHTML);
+    var base = hints[i].getAttribute('data-base');
+    var range = rule.type === 'int' && k !== 'sleepFrom' && k !== 'sleepTo' ? rule.min + '～' + rule.max + '，' : '';
+    var changed = cur[k] !== defaults[k];
+    hints[i].innerHTML = (base ? base + '　' : '') + range + '預設 ' + fmt(k, defaults[k]) + (changed ? '（已修改）' : '');
+    hints[i].className = changed ? 'changed' : '';
+  }
+}
+form.onchange = updateHints;
+form.oninput = updateHints;
+
+function result(text, cls) { $('result').innerHTML = text; $('result').className = cls || ''; }
+
+$('save').onclick = function () {
+  var data = readForm();
+  for (var k in data) {
+    var r = schema[k];
+    if (r.type === 'int' && (!isFinite(data[k]) || Math.round(data[k]) !== data[k] || data[k] < r.min || data[k] > r.max)) {
+      return result('「' + form[k].parentNode.querySelector('b').innerHTML + '」必須是 ' + r.min + '～' + r.max + ' 的整數', 'err');
+    }
+  }
+  $('save').disabled = true;
+  result('儲存中…');
+  api('action=save&data=' + encodeURIComponent(JSON.stringify(data)) + '&pw=' + encodeURIComponent($('pw').value), function (d) {
+    $('save').disabled = false;
+    setForm(d.values);
+    result('已儲存。相框約 1 分鐘內會自動重新載入並套用（背景音樂要再點一下畫面）。', 'ok');
+  }, function (err) {
+    $('save').disabled = false;
+    result('儲存失敗：' + err, 'err');
+  });
+};
+
+$('defaults').onclick = function () {
+  setForm(defaults);
+  result('已填入預設值，按「儲存並套用」才會生效。');
+};
+
+if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(API)) {
+  $('sub').innerHTML = '網址缺少 api 參數。格式：settings.html?api=Apps Script 網頁應用程式網址';
+} else {
+  api('action=settings', function (d) {
+    schema = d.schema; defaults = d.defaults;
+    setForm(d.values);
+    $('pwRow').style.display = d.needPassword ? 'block' : 'none';
+    form.style.display = 'block';
+    $('sub').innerHTML = '修改後按「儲存並套用」，相框約 1 分鐘內生效。';
+  }, function (err) { $('sub').innerHTML = '讀取設定失敗：' + err; });
+}
+</script>
+</body>
+</html>
