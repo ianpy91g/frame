@@ -32,6 +32,13 @@
     opacity: 0.75; text-shadow: 0 1px 6px rgba(0,0,0,0.9); }
   #pause { position: absolute; left: 36px; bottom: 30px; display: none; opacity: 0.85;
     -webkit-filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); }
+  #catPicker { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.72); display: none; z-index: 10; cursor: default; }
+  #catPicker .box { position: absolute; top: 50%; left: 50%; width: 420px; max-width: 88%; margin-top: -120px;
+    -webkit-transform: translateX(-50%); transform: translateX(-50%); background: #1f2026; color: #fff; border-radius: 16px; padding: 26px 24px 20px; text-align: center; }
+  #catPicker .title { font-size: 22px; margin-bottom: 18px; }
+  #catSelect { width: 100%; font-size: 20px; padding: 10px; border-radius: 10px; border: 0; margin-bottom: 16px; }
+  #catGo { width: 100%; font-size: 20px; padding: 12px; border-radius: 10px; border: 0; background: #2a6f97; color: #fff; }
+  #catHint { color: #aaa; font-size: 15px; margin-top: 14px; min-height: 20px; }
   #pause span { display: inline-block; width: 8px; height: 30px; margin-right: 8px; background: #fff; border-radius: 2px; }
 </style>
 </head>
@@ -41,6 +48,12 @@
 <div id="taken"><div id="takenDate"></div><div id="takenTime"></div></div>
 <div id="msg">載入中…</div>
 <div id="awakeHint"></div>
+<div id="catPicker"><div class="box">
+  <div class="title">選擇要播放的相簿</div>
+  <select id="catSelect"><option>讀取中…</option></select>
+  <button id="catGo">開始</button>
+  <div id="catHint"></div>
+</div></div>
 <audio id="bgm" preload="auto"></audio>
 <div id="pause"><span></span><span></span></div>
 <div id="sleep"></div>
@@ -48,7 +61,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 23; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 24; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -170,7 +183,7 @@ function loadList(done, why) {
   var report = '&v=' + VERSION + '&sa=' + (navigator.standalone ? 1 : 0) +
     '&up=' + Math.round((new Date().getTime() - loadedAt) / 60000) + '&n=' + ids.length +
     '&pos=' + pos + '/' + order.length + '&aw=' + (isAwake() ? 1 : 0) + '&rs=' + awakeRestarts + '&mu=' + (musicOn ? 1 : 0) + '&why=' + (why || 'timer');
-  api('action=list' + report, function (data) {
+  api('action=list&cat=' + encodeURIComponent(CATEGORY) + report, function (data) {
     for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
     if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
     if (!CONFIG.music && musicOn) stopMusic();
@@ -423,7 +436,7 @@ function musicReady() { return CONFIG.music && !musicOn && !musicWaiting && !!ne
 var trackFails = 0;
 function loadMusic() {
   if (!CONFIG.music) return;
-  api('action=music', function (d) {
+  api('action=music&cat=' + encodeURIComponent(CATEGORY), function (d) {
     tracks = shuffleList(d.tracks || []);
     trackIdx = 0;
     trackFails = 0;
@@ -484,21 +497,82 @@ function onTap() {
     try { var p = fs.call(el); if (p && p.catch) p.catch(function () {}); } catch (e) {}
   }
   keepAwake();
-  if (!started) return;
-  if (musicReady() && document.body.className !== 'sleeping') { playNextTrack(); return; }
-  // 0.3 秒內點第二下算「點兩下」；所以點一下要等 0.3 秒確認沒有第二下才動作
-  if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; goBack(); return; }
+  // 還沒開始音樂時，第一下用來開始音樂（iOS 規定要在點擊當下開始播放）
+  if (!taps && started && musicReady() && document.body.className !== 'sleeping') { playNextTrack(); return; }
+  // 連點計數：每兩下間隔 0.3 秒內算同一串；停下來後依次數動作
+  taps++;
+  clearTimeout(tapTimer);
   tapTimer = setTimeout(function () {
+    var n = taps;
+    taps = 0;
     tapTimer = null;
+    if (n >= 4) return showPicker(false);                          // 點四下：分類選單
+    if (!started) return;
+    if (n === 2) return goBack();                                  // 點兩下：上一張並暫停
+    if (n !== 1) return;                                           // 點三下：不動作
     if (paused) resume();                                          // 暫停中點一下：繼續播
-    else if (pending || histPos < shown.length - 1) advance();  // 點一下：下一張
+    else if (pending || histPos < shown.length - 1) advance();     // 點一下：下一張
     else waiting = true;                                           // 下一張還在載入：載好就換
   }, 300);
 }
-var tapTimer = null;
-// iOS Safari 點一般區域不會觸發 click，所以也監聽觸控；preventDefault 避免觸控後又補發一次 click
-document.addEventListener('touchend', function (e) { e.preventDefault(); onTap(); }, false);
-document.addEventListener('click', onTap, false);
+var tapTimer = null, taps = 0;
+// iOS Safari 點一般區域不會觸發 click，所以也監聽觸控；preventDefault 避免觸控後又補發一次 click。
+// 分類選單打開時不攔截，讓下拉選單和按鈕可以正常操作。
+document.addEventListener('touchend', function (e) {
+  if (pickerOpen()) return;
+  e.preventDefault();
+  onTap();
+}, false);
+document.addEventListener('click', function () { if (!pickerOpen()) onTap(); }, false);
+
+// ---------- 分類選單 ----------
+// 分類 = 相框資料夾第一層的子資料夾，各有自己的照片和 Music。選擇記在 localStorage，自動重新載入時沿用。
+// 從主畫面或網址打開時（網址沒有 _r）先顯示選單，20 秒沒選就用上次的分類。
+var CATEGORY = '';
+try { CATEGORY = localStorage.getItem('frameCategory') || ''; } catch (e) {}
+var pickerTimer = null;
+function pickerOpen() { return $('catPicker').style.display === 'block'; }
+function showPicker(countdown) {
+  var sel = $('catSelect');
+  $('catPicker').style.display = 'block';
+  $('catHint').innerHTML = '讀取分類中…';
+  sel.disabled = true;
+  api('action=categories', function (d) {
+    var html = '<option value="">全部（' + d.total + ' 張）</option>', found = !CATEGORY;
+    for (var i = 0; i < d.categories.length; i++) {
+      var c = d.categories[i];
+      if (c.id === CATEGORY) found = true;
+      html += '<option value="' + c.id + '">' + c.name.replace(/</g, '&lt;') + '（' + c.count + ' 張）</option>';
+    }
+    sel.innerHTML = html;
+    sel.value = found ? CATEGORY : '';
+    sel.disabled = false;
+    if (countdown) startCountdown(20); else $('catHint').innerHTML = '';
+  }, function () {
+    $('catHint').innerHTML = '讀取分類失敗，先繼續播放目前的分類';
+    setTimeout(hidePicker, 3000);
+  });
+}
+function startCountdown(sec) {
+  clearInterval(pickerTimer);
+  var name = function () { var o = $('catSelect').options[$('catSelect').selectedIndex]; return o ? o.text.replace(/（.*$/, '') : ''; };
+  $('catHint').innerHTML = sec + ' 秒後自動開始：' + name();
+  pickerTimer = setInterval(function () {
+    if (--sec <= 0) { clearInterval(pickerTimer); return hidePicker(); }
+    $('catHint').innerHTML = sec + ' 秒後自動開始：' + name();
+  }, 1000);
+}
+function hidePicker() {
+  clearInterval(pickerTimer);
+  $('catPicker').style.display = 'none';
+}
+$('catSelect').onchange = function () { clearInterval(pickerTimer); $('catHint').innerHTML = ''; };
+$('catGo').onclick = function () {
+  var chosen = $('catSelect').value;
+  try { localStorage.setItem('frameCategory', chosen); } catch (e) {}
+  hidePicker();
+  if (chosen !== CATEGORY) reloadFresh(); // 換分類：重新載入（不會再出現選單），從新分類開始播
+};
 // 回到畫面上（切回 Safari / 主畫面 app、解鎖）時立刻重新讀清單；在背景時計時器會暫停，不能只靠定時更新
 document.addEventListener('visibilitychange', function () {
   if (document.hidden) return;
@@ -526,6 +600,7 @@ window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', function () { fit(); setTimeout(fit, 500); });
 
 msg('載入中…（v' + VERSION + '）');
+if (!/[?&]_r=/.test(location.search)) showPicker(true);
 tick();
 setInterval(tick, 10000);
 keepAwake();
