@@ -61,7 +61,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 26; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 27; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -309,7 +309,9 @@ setInterval(function () {
 }, 60000);
 
 // 整頁重新載入；網址加時間參數避開快取（iOS 主畫面 app 會快取網頁）
+// 先在 sessionStorage 記下「這次是自動重新載入」，載入後就不會跳出分類選單
 function reloadFresh() {
+  try { sessionStorage.setItem('frameAutoReload', '1'); } catch (e) {}
   var search = location.search.replace(/&_r=\d+/, '');
   location.replace(location.pathname + search + (search ? '&' : '?') + '_r=' + new Date().getTime());
 }
@@ -606,7 +608,19 @@ window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', function () { fit(); setTimeout(fit, 500); });
 
 msg('載入中…（v' + VERSION + '）');
-if (!/[?&]_r=/.test(location.search)) showPicker(true);
+// 分類選單：手動重新整理或從主畫面打開時顯示；自動重新載入（reloadFresh 記下的旗標）時不顯示。
+// 旗標讀過就清掉，所以只影響緊接著的這一次載入。網址裡的 _r 只是用來避開快取，載入後拿掉。
+var autoReloaded = false;
+try {
+  autoReloaded = sessionStorage.getItem('frameAutoReload') === '1';
+  sessionStorage.removeItem('frameAutoReload');
+} catch (e) {}
+try {
+  if (history.replaceState && /[?&]_r=/.test(location.search)) {
+    history.replaceState(null, '', location.pathname + location.search.replace(/&_r=\d+/, ''));
+  }
+} catch (e) {}
+if (!autoReloaded) showPicker(true);
 tick();
 setInterval(tick, 10000);
 keepAwake();
