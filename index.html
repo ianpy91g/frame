@@ -37,7 +37,7 @@
 <div class="slide" id="s1"><div class="bg"></div><div class="fg"></div></div>
 <div id="photoDate"></div>
 <div id="clock"><div id="time"></div><div id="day"></div></div>
-<div id="msg">載入中…（v5）</div>
+<div id="msg">載入中…（v6）</div>
 <div id="sleep"></div>
 
 <script>
@@ -94,7 +94,8 @@ function reshuffle() {
   pos = 0;
 }
 
-// 重新讀到清單時：刪掉的照片移出播放順序，新照片（隨機順序）插到下一張開始播
+// 重新讀到清單時：刪掉的照片移出播放順序，新照片插到下一張開始播
+// （隨機模式下新照片之間隨機排，否則維持清單的最新優先順序）
 function mergeOrder(old) {
   var known = {}, current = {}, i;
   for (i = 0; i < old.length; i++) known[old[i]] = true;
@@ -103,7 +104,7 @@ function mergeOrder(old) {
   for (i = 0; i < ids.length; i++) if (!known[ids[i]]) fresh.push(ids[i]);
   var rest = [];
   for (i = pos; i < order.length; i++) if (current[order[i]]) rest.push(order[i]);
-  for (i = fresh.length - 1; i > 0; i--) {
+  for (i = fresh.length - 1; CONFIG.shuffle && i > 0; i--) {
     var j = Math.floor(Math.random() * (i + 1));
     var t = fresh[i]; fresh[i] = fresh[j]; fresh[j] = t;
   }
