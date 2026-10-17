@@ -9,9 +9,9 @@
 <meta name="apple-mobile-web-app-title" content="相框">
 <title>相框</title>
 <style>
-  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none;
+  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none; position: relative;
     font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif; }
-  .slide { position: fixed; top: 0; left: 0; right: 0; bottom: 0; opacity: 0; overflow: hidden;
+  .slide { position: absolute; top: 0; left: 0; right: 0; bottom: 0; opacity: 0; overflow: hidden;
     -webkit-transition: opacity 2s ease-in-out; transition: opacity 2s ease-in-out; }
   .slide.on { opacity: 1; }
   .bg, .fg { position: absolute; top: 0; left: 0; right: 0; bottom: 0;
@@ -20,15 +20,15 @@
     top: -60px; left: -60px; right: -60px; bottom: -60px; }
   .fg { background-size: contain; -webkit-transform: scale(1); transform: scale(1); }
 
-  #clock { position: fixed; right: 36px; bottom: 28px; color: #fff; text-align: right;
+  #clock { position: absolute; right: 36px; bottom: 28px; color: #fff; text-align: right;
     text-shadow: 0 2px 12px rgba(0,0,0,0.8); }
   #time { font-size: 64px; font-weight: 300; line-height: 1; }
   #day { font-size: 20px; margin-top: 6px; opacity: 0.85; }
-  #photoDate { position: fixed; left: 36px; bottom: 30px; color: #fff; font-size: 16px; opacity: 0.7;
+  #photoDate { position: absolute; left: 36px; bottom: 30px; color: #fff; font-size: 16px; opacity: 0.7;
     text-shadow: 0 2px 10px rgba(0,0,0,0.8); }
-  #msg { position: fixed; top: 50%; left: 0; right: 0; text-align: center; color: #aaa; font-size: 20px;
+  #msg { position: absolute; top: 50%; left: 0; right: 0; text-align: center; color: #aaa; font-size: 20px;
     margin-top: -14px; padding: 0 20px; line-height: 1.6; }
-  #sleep { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000; display: none; }
+  #sleep { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000; display: none; }
   body.sleeping #sleep { display: block; }
 </style>
 </head>
@@ -37,7 +37,7 @@
 <div class="slide" id="s1"><div class="bg"></div><div class="fg"></div></div>
 <div id="photoDate"></div>
 <div id="clock"><div id="time"></div><div id="day"></div></div>
-<div id="msg">載入中…（v4）</div>
+<div id="msg">載入中…（v5）</div>
 <div id="sleep"></div>
 
 <script>
@@ -219,6 +219,24 @@ function onTap() {
 document.addEventListener('touchend', function (e) { e.preventDefault(); onTap(); }, false);
 document.addEventListener('click', onTap, false);
 document.addEventListener('visibilitychange', function () { if (!document.hidden) keepAwake(); });
+document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false }); // 避免畫面被拖動
+
+// iOS 主畫面 app 模式（狀態列透明）時，舊版 iOS 回報的高度會少掉狀態列，底部留一條黑邊；
+// 改用螢幕實際尺寸與方向自己算畫面大小。
+function fit() {
+  if (!navigator.standalone) return;
+  var a = screen.width, b = screen.height;
+  var landscape = typeof window.orientation === 'number' ? Math.abs(window.orientation) === 90
+    : window.innerWidth > window.innerHeight;
+  var w = landscape ? Math.max(a, b) : Math.min(a, b);
+  var h = landscape ? Math.min(a, b) : Math.max(a, b);
+  var els = [document.documentElement, document.body];
+  for (var i = 0; i < els.length; i++) { els[i].style.width = w + 'px'; els[i].style.height = h + 'px'; }
+  window.scrollTo(0, 0);
+}
+fit();
+window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', function () { fit(); setTimeout(fit, 500); });
 
 tick();
 setInterval(tick, 10000);
