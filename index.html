@@ -33,11 +33,12 @@
   #pause { position: absolute; left: 36px; bottom: 30px; display: none; opacity: 0.85;
     -webkit-filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); }
   #catPicker { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.72); display: none; z-index: 10; cursor: default; }
-  #catPicker .box { position: absolute; top: 50%; left: 50%; width: 420px; max-width: 88%; margin-top: -120px;
-    -webkit-transform: translateX(-50%); transform: translateX(-50%); background: #1f2026; color: #fff; border-radius: 16px; padding: 26px 24px 20px; text-align: center; }
+  #catPicker .box { position: absolute; top: 12%; left: 0; right: 0; margin: 0 auto; width: 420px; max-width: 88%; background: #1f2026; color: #fff; border-radius: 16px; padding: 26px 24px 20px; text-align: center; }
   #catPicker .title { font-size: 22px; margin-bottom: 18px; }
-  #catSelect { width: 100%; font-size: 20px; padding: 10px; border-radius: 10px; border: 0; margin-bottom: 16px; }
-  #catGo { width: 100%; font-size: 20px; padding: 12px; border-radius: 10px; border: 0; background: #2a6f97; color: #fff; }
+  #catList { max-height: 60vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  #catList div { font-size: 20px; padding: 14px 16px; margin-bottom: 10px; border-radius: 10px; background: #2c2e36; text-align: left; cursor: pointer; }
+  #catList div.current { background: #2a6f97; }
+  #catList div.current:after { content: '  ✓'; }
   #catHint { color: #aaa; font-size: 15px; margin-top: 14px; min-height: 20px; }
   #pause span { display: inline-block; width: 8px; height: 30px; margin-right: 8px; background: #fff; border-radius: 2px; }
 </style>
@@ -50,8 +51,7 @@
 <div id="awakeHint"></div>
 <div id="catPicker"><div class="box">
   <div class="title">選擇要播放的相簿</div>
-  <select id="catSelect"><option>讀取中…</option></select>
-  <button id="catGo">開始</button>
+  <div id="catList"></div>
   <div id="catHint"></div>
 </div></div>
 <audio id="bgm" preload="auto"></audio>
@@ -61,7 +61,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 24; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 25; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -532,47 +532,53 @@ var CATEGORY = '';
 try { CATEGORY = localStorage.getItem('frameCategory') || ''; } catch (e) {}
 var pickerTimer = null;
 function pickerOpen() { return $('catPicker').style.display === 'block'; }
+var catNames = {};
 function showPicker(countdown) {
-  var sel = $('catSelect');
   $('catPicker').style.display = 'block';
+  $('catList').innerHTML = '';
   $('catHint').innerHTML = '讀取分類中…';
-  sel.disabled = true;
   api('action=categories', function (d) {
-    var html = '<option value="">全部（' + d.total + ' 張）</option>', found = !CATEGORY;
-    for (var i = 0; i < d.categories.length; i++) {
-      var c = d.categories[i];
-      if (c.id === CATEGORY) found = true;
-      html += '<option value="' + c.id + '">' + c.name.replace(/</g, '&lt;') + '（' + c.count + ' 張）</option>';
+    var items = [{ id: '', name: '全部', count: d.total }].concat(d.categories), found = false, i;
+    for (i = 0; i < items.length; i++) if (items[i].id === CATEGORY) found = true;
+    var current = found ? CATEGORY : '';
+    $('catList').innerHTML = '';
+    for (i = 0; i < items.length; i++) {
+      var el = document.createElement('div');
+      el.setAttribute('data-id', items[i].id);
+      el.className = items[i].id === current ? 'current' : '';
+      el.appendChild(document.createTextNode(items[i].name + '（' + items[i].count + ' 張）'));
+      el.onclick = chooseCategory;
+      catNames[items[i].id] = items[i].name;
+      $('catList').appendChild(el);
     }
-    sel.innerHTML = html;
-    sel.value = found ? CATEGORY : '';
-    sel.disabled = false;
-    if (countdown) startCountdown(20); else $('catHint').innerHTML = '';
+    if (countdown) startCountdown(20, current); else $('catHint').innerHTML = '點一個相簿開始播放';
   }, function () {
     $('catHint').innerHTML = '讀取分類失敗，先繼續播放目前的分類';
     setTimeout(hidePicker, 3000);
   });
 }
-function startCountdown(sec) {
+function startCountdown(sec, current) {
   clearInterval(pickerTimer);
-  var name = function () { var o = $('catSelect').options[$('catSelect').selectedIndex]; return o ? o.text.replace(/（.*$/, '') : ''; };
-  $('catHint').innerHTML = sec + ' 秒後自動開始：' + name();
+  var text = function () { return sec + ' 秒後自動開始：' + (catNames[current] || '全部'); };
+  $('catHint').innerHTML = text();
   pickerTimer = setInterval(function () {
     if (--sec <= 0) { clearInterval(pickerTimer); return hidePicker(); }
-    $('catHint').innerHTML = sec + ' 秒後自動開始：' + name();
+    $('catHint').innerHTML = text();
   }, 1000);
 }
 function hidePicker() {
   clearInterval(pickerTimer);
   $('catPicker').style.display = 'none';
 }
-$('catSelect').onchange = function () { clearInterval(pickerTimer); $('catHint').innerHTML = ''; };
-$('catGo').onclick = function () {
-  var chosen = $('catSelect').value;
-  try { localStorage.setItem('frameCategory', chosen); } catch (e) {}
+// 點一個相簿：換分類就重新載入（不會再出現選單）；選的是目前的分類就直接繼續，順便開始音樂
+function chooseCategory(e) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  var chosen = this.getAttribute('data-id') || '';
+  try { localStorage.setItem('frameCategory', chosen); } catch (err) {}
   hidePicker();
-  if (chosen !== CATEGORY) reloadFresh(); // 換分類：重新載入（不會再出現選單），從新分類開始播
-};
+  if (chosen !== CATEGORY) return reloadFresh();
+  if (started && musicReady() && document.body.className !== 'sleeping') playNextTrack();
+}
 // 回到畫面上（切回 Safari / 主畫面 app、解鎖）時立刻重新讀清單；在背景時計時器會暫停，不能只靠定時更新
 document.addEventListener('visibilitychange', function () {
   if (document.hidden) return;
@@ -580,7 +586,7 @@ document.addEventListener('visibilitychange', function () {
   if (ids.length) loadList(null, 'visible');
 });
 window.addEventListener('pageshow', function (e) { if (e.persisted && ids.length) loadList(null, 'pageshow'); });
-document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false }); // 避免畫面被拖動
+document.addEventListener('touchmove', function (e) { if (!pickerOpen()) e.preventDefault(); }, { passive: false }); // 避免畫面被拖動（分類選單打開時可以捲動）
 
 // iOS 主畫面 app 模式（狀態列透明）時，舊版 iOS 回報的高度會少掉狀態列，底部留一條黑邊；
 // 改用螢幕實際尺寸與方向自己算畫面大小。
