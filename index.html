@@ -64,7 +64,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 29; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 30; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -253,22 +253,42 @@ function advance() {
 }
 
 // 點兩下：退回上一張並暫停（暫停時再點兩下可以繼續往前退）
-function goBack() {
-  if (!started) return;
-  if (histPos > 0) showPhoto(shown[--histPos]);
-  pause();
+// 向右滑：上一張。播放中會從這張重新計時；暫停中維持暫停
+function showPrev() {
+  if (!started || histPos <= 0) return;
+  showPhoto(shown[--histPos]);
+  if (!paused) { clearTimeout(timer); timer = setTimeout(advance, CONFIG.intervalSec * 1000); }
 }
 
+// 向左滑：下一張（下一張還在載入就載好立刻換）；暫停中換完仍維持暫停
+function showNext() {
+  if (!started) return;
+  var wasPaused = paused;
+  paused = false;
+  if (pending || histPos < shown.length - 1) advance();
+  else if (!wasPaused) waiting = true;
+  if (wasPaused) { paused = true; waiting = false; clearTimeout(timer); }
+}
+
+// 點兩下：暫停照片和音樂
+var musicPaused = false;
 function pause() {
+  if (paused) return;
   paused = true;
   waiting = false;
   clearTimeout(timer);
+  if (musicOn) { try { $('bgm').pause(); } catch (e) {} musicPaused = true; }
   $('pause').style.display = 'block';
 }
 
+// 暫停中點一下：恢復照片和音樂（在點擊當下呼叫，iOS 才允許恢復播放聲音）
 function resume() {
   paused = false;
   $('pause').style.display = 'none';
+  if (musicPaused) {
+    musicPaused = false;
+    try { var p = $('bgm').play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+  }
   timer = setTimeout(advance, CONFIG.intervalSec * 1000);
 }
 
@@ -492,7 +512,8 @@ function playNextTrack() {
   var token = ++playSeq;
   try {
     var p = a.play();
-    if (p && p.catch) p.catch(function () { if (token === playSeq) { musicOn = false; updateAwakeHint(); } });
+    // 播放請求被暫停或換曲中斷（AbortError）不算失敗
+    if (p && p.catch) p.catch(function (err) { if (token === playSeq && !(err && err.name === 'AbortError')) { musicOn = false; updateAwakeHint(); } });
   } catch (e) { musicOn = false; }
   fetchTrack();
   updateAwakeHint();
@@ -500,6 +521,7 @@ function playNextTrack() {
 function stopMusic() {
   try { $('bgm').pause(); } catch (e) {}
   musicOn = false;
+  musicPaused = false;
   musicWaiting = false;
   updateAwakeHint();
 }
@@ -514,8 +536,10 @@ function onTap() {
   }
   keepAwake();
   if (document.body.className === 'sleeping') showNightMsg(); // 夜間點畫面：顯示夜間提示
-  // 還沒開始音樂時，第一下用來開始音樂（iOS 規定要在點擊當下開始播放）
-  if (!taps && started && musicReady() && document.body.className !== 'sleeping') { playNextTrack(); return; }
+  // 暫停中點一下：恢復播放。要在點擊當下恢復（音樂需要使用者手勢），所以第一下就先處理
+  if (!taps && paused) { resume(); return; }
+  // 還沒開始音樂時，第一下順便開始音樂（iOS 規定要在點擊當下開始播放）；這一下仍算進連點次數
+  if (!taps && started && musicReady() && document.body.className !== 'sleeping') playNextTrack();
   // 連點計數：每兩下間隔 0.3 秒內算同一串；停下來後依次數動作
   taps++;
   clearTimeout(tapTimer);
@@ -523,21 +547,44 @@ function onTap() {
     var n = taps;
     taps = 0;
     tapTimer = null;
-    if (n >= 4) return showPicker(false);                          // 點四下：分類選單
-    if (!started) return;
-    if (n === 2) return goBack();                                  // 點兩下：上一張並暫停
-    if (n !== 1) return;                                           // 點三下：不動作
-    if (paused) resume();                                          // 暫停中點一下：繼續播
-    else if (pending || histPos < shown.length - 1) advance();     // 點一下：下一張
-    else waiting = true;                                           // 下一張還在載入：載好就換
+    if (n >= 3) return showPicker(false);                          // 點三下：相簿選單
+    if (n === 2 && started) pause();                               // 點兩下：暫停（照片和音樂）
   }, 300);
 }
 var tapTimer = null, taps = 0;
+
+// 左右滑：向左＝下一張，向右＝上一張。水平移動超過 50px、而且比垂直移動多，才算滑動
+var touchX = 0, touchY = 0, touchT = 0;
+document.addEventListener('touchstart', function (e) {
+  if (pickerOpen() || !e.touches || !e.touches.length) return;
+  touchX = e.touches[0].clientX; touchY = e.touches[0].clientY; touchT = new Date().getTime();
+}, false);
+function swipeOf(e) {
+  var t = e.changedTouches && e.changedTouches[0];
+  if (!t) return 0;
+  var dx = t.clientX - touchX, dy = t.clientY - touchY;
+  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5 || new Date().getTime() - touchT > 1000) return 0;
+  return dx < 0 ? 1 : -1; // 1 = 向左滑（下一張），-1 = 向右滑（上一張）
+}
+// 電腦：← → 換照片，空白鍵暫停／恢復
+document.addEventListener('keydown', function (e) {
+  if (pickerOpen()) return;
+  if (e.keyCode === 39) showNext();
+  else if (e.keyCode === 37) showPrev();
+  else if (e.keyCode === 32) { e.preventDefault(); if (paused) resume(); else if (started) pause(); }
+}, false);
 // iOS Safari 點一般區域不會觸發 click，所以也監聽觸控；preventDefault 避免觸控後又補發一次 click。
 // 分類選單打開時不攔截，讓下拉選單和按鈕可以正常操作。
 document.addEventListener('touchend', function (e) {
   if (pickerOpen()) return;
   e.preventDefault();
+  var swipe = swipeOf(e);
+  if (swipe) {
+    keepAwake();
+    if (taps) { clearTimeout(tapTimer); tapTimer = null; taps = 0; }
+    if (swipe > 0) showNext(); else showPrev();
+    return;
+  }
   onTap();
 }, false);
 document.addEventListener('click', function () { if (!pickerOpen()) onTap(); }, false);
