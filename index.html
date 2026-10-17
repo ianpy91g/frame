@@ -64,7 +64,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 30; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 31; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -547,13 +547,13 @@ function onTap() {
     var n = taps;
     taps = 0;
     tapTimer = null;
-    if (n >= 3) return showPicker(false);                          // 點三下：相簿選單
     if (n === 2 && started) pause();                               // 點兩下：暫停（照片和音樂）
   }, 300);
 }
 var tapTimer = null, taps = 0;
 
-// 左右滑：向左＝下一張，向右＝上一張。水平移動超過 50px、而且比垂直移動多，才算滑動
+// 滑動：向左＝下一張，向右＝上一張，向上＝相簿選單。
+// 水平移動超過 50px 且明顯是橫向才算左右滑；往上超過 60px 且明顯是縱向才算向上滑
 var touchX = 0, touchY = 0, touchT = 0;
 document.addEventListener('touchstart', function (e) {
   if (pickerOpen() || !e.touches || !e.touches.length) return;
@@ -561,10 +561,11 @@ document.addEventListener('touchstart', function (e) {
 }, false);
 function swipeOf(e) {
   var t = e.changedTouches && e.changedTouches[0];
-  if (!t) return 0;
+  if (!t || new Date().getTime() - touchT > 1000) return 0;
   var dx = t.clientX - touchX, dy = t.clientY - touchY;
-  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5 || new Date().getTime() - touchT > 1000) return 0;
-  return dx < 0 ? 1 : -1; // 1 = 向左滑（下一張），-1 = 向右滑（上一張）
+  if (dy < -60 && -dy > Math.abs(dx) * 1.5) return 2;                 // 2 = 向上滑（相簿選單）
+  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return 0;
+  return dx < 0 ? 1 : -1;                                             // 1 = 向左滑（下一張），-1 = 向右滑（上一張）
 }
 // 電腦：← → 換照片，空白鍵暫停／恢復
 document.addEventListener('keydown', function (e) {
@@ -582,7 +583,9 @@ document.addEventListener('touchend', function (e) {
   if (swipe) {
     keepAwake();
     if (taps) { clearTimeout(tapTimer); tapTimer = null; taps = 0; }
-    if (swipe > 0) showNext(); else showPrev();
+    if (swipe === 2) showPicker(false);
+    else if (swipe > 0) showNext();
+    else showPrev();
     return;
   }
   onTap();
