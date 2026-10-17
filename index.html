@@ -39,7 +39,7 @@
 
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 11; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 12; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -255,9 +255,14 @@ function showTaken(s) {
   var m = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?/.exec(s || '');
   if (!CONFIG.showPhotoDate || !m) { $('taken').style.display = 'none'; return; }
   var day = new Date(+m[1], +m[2] - 1, +m[3]).getDay();
-  $('takenDate').innerHTML = m[1] + '/' + m[2] + '/' + m[3];
-  $('takenTime').innerHTML = '星期' + WEEK[day] + (m[4] ? '　' + m[4] + ':' + m[5] : '');
+  $('takenDate').innerHTML = '<span>' + m[1] + '/' + m[2] + '/' + m[3] + '</span>';
+  $('takenTime').innerHTML = '<span>' + '星期' + WEEK[day] + (m[4] ? '　' + m[4] + ':' + m[5] : '') + '</span>';
   $('taken').style.display = 'block';
+  // 日期字級自動調整成和下一行（星期＋時間）一樣寬；下一行比較短時維持基本字級
+  var base = 20, dateEl = $('takenDate');
+  dateEl.style.fontSize = base + 'px';
+  var dateW = dateEl.firstChild.offsetWidth, lineW = $('takenTime').firstChild.offsetWidth;
+  if (dateW && lineW > dateW) dateEl.style.fontSize = (base * lineW / dateW).toFixed(1) + 'px';
 }
 
 var wasSleeping = false;
