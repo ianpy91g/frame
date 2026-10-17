@@ -18,10 +18,7 @@
     background-position: center; background-repeat: no-repeat; }
   .bg { background-size: cover; -webkit-filter: blur(40px) brightness(0.55); filter: blur(40px) brightness(0.55);
     top: -60px; left: -60px; right: -60px; bottom: -60px; }
-  .fg { background-size: contain; }
-  .zoom .fg { -webkit-animation: zoom linear forwards; animation: zoom linear forwards; }
-  @-webkit-keyframes zoom { from { -webkit-transform: scale(1); } to { -webkit-transform: scale(1.07); } }
-  @keyframes zoom { from { transform: scale(1); } to { transform: scale(1.07); } }
+  .fg { background-size: contain; -webkit-transform: scale(1); transform: scale(1); }
 
   #clock { position: fixed; right: 36px; bottom: 28px; color: #fff; text-align: right;
     text-shadow: 0 2px 12px rgba(0,0,0,0.8); }
@@ -40,7 +37,7 @@
 <div class="slide" id="s1"><div class="bg"></div><div class="fg"></div></div>
 <div id="photoDate"></div>
 <div id="clock"><div id="time"></div><div id="day"></div></div>
-<div id="msg">載入中…</div>
+<div id="msg">載入中…（v4）</div>
 <div id="sleep"></div>
 
 <script>
@@ -156,20 +153,22 @@ function advance() {
   var url = 'url("' + photo.src + '")';
   next.children[0].style.backgroundImage = CONFIG.blurBackground ? url : 'none';
   next.children[1].style.backgroundImage = url;
-  next.className = 'slide';
+  // 緩慢放大用 transform 轉場（不用 keyframes 動畫）：舊版 iOS Safari 改 class 時會重算 keyframes
+  // 讓照片跳回原尺寸，轉場則不受影響。新照片在透明時先歸回 1 倍再開始放大。
+  var fg = next.children[1];
+  fg.style.webkitTransition = fg.style.transition = 'none';
+  fg.style.webkitTransform = fg.style.transform = 'scale(1)';
+  void fg.offsetWidth; // 強制套用 1 倍，接下來的變化才會用轉場
   if (CONFIG.kenBurns) {
-    void next.offsetWidth; // 先移除再加回 zoom，讓放大動畫從頭開始
-    next.children[1].style.webkitAnimationDuration = next.children[1].style.animationDuration =
-      (CONFIG.intervalSec + 4) + 's';
-    next.className = 'slide on zoom';
-  } else {
-    next.className = 'slide on';
+    var dur = (CONFIG.intervalSec + 4) + 's';
+    fg.style.webkitTransition = '-webkit-transform ' + dur + ' linear';
+    fg.style.transition = 'transform ' + dur + ' linear';
+    fg.style.webkitTransform = fg.style.transform = 'scale(1.07)';
   }
-  // 舊照片保留 zoom，淡出時維持放大狀態，不會突然縮回
-  old.className = CONFIG.kenBurns ? 'slide zoom' : 'slide';
-  setTimeout(function () { // 淡出完成後才重置動畫、釋放舊照片的記憶體
+  next.className = 'slide on';
+  old.className = 'slide'; // 舊照片只淡出，放大轉場完全不動，會照原速繼續放大
+  setTimeout(function () { // 淡出完成後釋放舊照片的記憶體
     if (old.className.indexOf('on') < 0) {
-      old.className = 'slide';
       old.children[0].style.backgroundImage = old.children[1].style.backgroundImage = 'none';
     }
   }, 2500);
