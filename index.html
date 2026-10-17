@@ -47,7 +47,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 16; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 17; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -172,7 +172,7 @@ function refreshOrder(old) {
 function loadList(done, why) {
   var report = '&v=' + VERSION + '&sa=' + (navigator.standalone ? 1 : 0) +
     '&up=' + Math.round((new Date().getTime() - loadedAt) / 60000) + '&n=' + ids.length +
-    '&pos=' + pos + '/' + order.length + '&aw=' + (awake ? 1 : 0) + '&why=' + (why || 'timer');
+    '&pos=' + pos + '/' + order.length + '&aw=' + (isAwake() ? 1 : 0) + '&why=' + (why || 'timer');
   api('action=list' + report, function (data) {
     for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
     if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
@@ -346,21 +346,33 @@ function tick() {
 // 晚上黑畫面時段停止（allowSleep），讓 iPad 依「自動鎖定」時間關掉螢幕省電。
 var noSleep = null, awake = false;
 try { if (window.NoSleep) noSleep = new NoSleep(); } catch (e) {}
+// 每次點擊都重新嘗試（iOS 沒點過畫面時的播放會被拒絕）；狀態以「影片實際上有沒有在播」為準
 function keepAwake() {
-  if (!noSleep || awake || document.body.className === 'sleeping') return updateAwakeHint();
+  if (!noSleep || document.body.className === 'sleeping') return updateAwakeHint();
+  var before = isAwake();
   try {
     var p = noSleep.enable();
-    awake = true;
-    if (p && p.then) p.then(updateAwakeHint, function () { awake = false; updateAwakeHint(); });
-  } catch (e) { awake = false; }
+    if (p && p.then) {
+      p.then(function () {
+        updateAwakeHint();
+        if (!before && isAwake() && ids.length) loadList(null, 'awake'); // 真的開始了就回報一次
+      }, updateAwakeHint);
+    }
+  } catch (e) {}
   updateAwakeHint();
 }
+function isAwake() {
+  if (!noSleep) return false;
+  var v = noSleep.noSleepVideo;
+  if (v) return !v.paused;            // 舊版 iOS：隱藏影片有沒有在播
+  return !!noSleep.isEnabled;         // 新瀏覽器：Wake Lock
+}
 function allowSleep() {
-  if (noSleep && awake) { try { noSleep.disable(); } catch (e) {} }
-  awake = false;
+  if (noSleep) { try { noSleep.disable(); } catch (e) {} }
   updateAwakeHint();
 }
 function updateAwakeHint() {
+  awake = isAwake();
   var show = noSleep && !awake && started && document.body.className !== 'sleeping';
   $('awakeHint').style.display = show ? 'block' : 'none';
 }
