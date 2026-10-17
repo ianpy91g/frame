@@ -22,8 +22,8 @@
 
   #taken { position: absolute; right: 36px; bottom: 28px; color: #fff; text-align: right; display: none;
     text-shadow: 0 2px 12px rgba(0,0,0,0.8); }
-  #takenDate { font-size: 52px; font-weight: 300; line-height: 1; }
-  #takenTime { font-size: 20px; margin-top: 8px; opacity: 0.85; }
+  #takenDate { font-size: 20px; line-height: 1.2; }
+  #takenTime { font-size: 20px; margin-top: 4px; opacity: 0.85; }
   #msg { position: absolute; top: 50%; left: 0; right: 0; text-align: center; color: #aaa; font-size: 20px;
     margin-top: -14px; padding: 0 20px; line-height: 1.6; }
   #sleep { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000; display: none; }
@@ -39,7 +39,7 @@
 
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 10; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 11; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
