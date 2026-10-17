@@ -48,11 +48,11 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 21; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 22; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
-var ids = [], groups = [], order = [], pos = 0;
+var ids = [], groups = [], plays = {}, order = [], pos = 0;
 var slides = [document.getElementById('s0'), document.getElementById('s1')];
 var cur = 1;
 var pending = null, waiting = false, timer = null, started = false, fetching = false;
@@ -110,20 +110,16 @@ function markSeen(id) {
   try { localStorage.setItem('frameSeen', JSON.stringify(seen)); } catch (e) {}
 }
 
-// 從 arr 平均挑 k 張（隨機起點），維持原本順序
-function spread(arr, k) {
-  var out = [], r = Math.random();
-  for (var i = 0; i < k; i++) out.push(arr[Math.floor((i + r) * arr.length / k)]);
-  return out;
-}
-
-// 一組最多挑 max 張：優先挑還沒播過的，不夠再從播過的平均補，結果維持拍攝時間順序
+// 一組最多挑 max 張：還沒播過的優先，其次挑播放次數（所有裝置合計）最少的；
+// 次數相同時隨機，結果維持拍攝時間順序。長期下來每張照片播放次數會趨於平均。
 function pickFromGroup(list, max) {
   if (list.length <= max) return list.slice();
-  var unseen = [], old = [], chosen = {}, i;
-  for (i = 0; i < list.length; i++) (seen[list[i]] ? old : unseen).push(list[i]);
-  var pick = unseen.length >= max ? spread(unseen, max) : unseen.concat(spread(old, max - unseen.length));
-  for (i = 0; i < pick.length; i++) chosen[pick[i]] = true;
+  var cand = [], chosen = {}, i;
+  for (i = 0; i < list.length; i++) {
+    cand.push({ id: list[i], seen: seen[list[i]] ? 1 : 0, plays: plays[list[i]] || 0, r: Math.random() });
+  }
+  cand.sort(function (a, b) { return a.seen - b.seen || a.plays - b.plays || a.r - b.r; });
+  for (i = 0; i < max; i++) chosen[cand[i].id] = true;
   var out = [];
   for (i = 0; i < list.length; i++) if (chosen[list[i]]) out.push(list[i]);
   return out;
@@ -182,6 +178,7 @@ function loadList(done, why) {
     var old = ids;
     ids = data.ids || [];
     groups = data.groups || [];
+    plays = data.plays || {};
     // 有新照片時，丟掉已預載的舊照片，讓下一張直接是新照片
     if (!first && refreshOrder(old) && !fetching) { pending = null; prefetch(); }
     tick();
@@ -227,6 +224,7 @@ function advance() {
   var photo = pending;
   pending = null;
   markSeen(photo.id);
+  plays[photo.id] = (plays[photo.id] || 0) + 1; // 本機先加，下一次讀清單前排順序也用得到
   shown.push(photo);
   if (shown.length > HISTORY_MAX) shown.shift();
   histPos = shown.length - 1;
