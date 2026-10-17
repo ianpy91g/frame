@@ -180,16 +180,20 @@ function keepAwake() {
   } catch (e) {}
 }
 
-// 點一下：嘗試全螢幕並換下一張
-document.addEventListener('click', function () {
+// 點一下：嘗試全螢幕並換下一張（下一張還沒載好就等載好立刻換）
+function onTap() {
   var el = document.documentElement;
   var fs = el.requestFullscreen || el.webkitRequestFullscreen;
   if (fs && !(document.fullscreenElement || document.webkitFullscreenElement)) {
     try { var p = fs.call(el); if (p && p.catch) p.catch(function () {}); } catch (e) {}
   }
   keepAwake();
-  if (pending) advance();
-});
+  if (!started) return;
+  if (pending) advance(); else waiting = true;
+}
+// iOS Safari 點一般區域不會觸發 click，所以也監聽觸控；preventDefault 避免觸控後又補發一次 click
+document.addEventListener('touchend', function (e) { e.preventDefault(); onTap(); }, false);
+document.addEventListener('click', onTap, false);
 document.addEventListener('visibilitychange', function () { if (!document.hidden) keepAwake(); });
 
 tick();
