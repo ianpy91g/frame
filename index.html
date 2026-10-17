@@ -47,7 +47,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 18; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 19; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -172,7 +172,7 @@ function refreshOrder(old) {
 function loadList(done, why) {
   var report = '&v=' + VERSION + '&sa=' + (navigator.standalone ? 1 : 0) +
     '&up=' + Math.round((new Date().getTime() - loadedAt) / 60000) + '&n=' + ids.length +
-    '&pos=' + pos + '/' + order.length + '&aw=' + (isAwake() ? 1 : 0) + '&why=' + (why || 'timer');
+    '&pos=' + pos + '/' + order.length + '&aw=' + (isAwake() ? 1 : 0) + '&rs=' + awakeRestarts + '&why=' + (why || 'timer');
   api('action=list' + report, function (data) {
     for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
     if (CONFIG.webVersion > VERSION && !triedVersion(CONFIG.webVersion)) return reloadFresh(); // 伺服器說有新版網頁
@@ -377,6 +377,16 @@ function isAwake() {
   if (v) return !v.paused;            // 舊版 iOS：隱藏影片有沒有在播
   return !!noSleep.isEnabled;         // 新瀏覽器：Wake Lock
 }
+// 看門狗：iOS 有時會自己把隱藏影片停掉，停了就擋不住自動鎖定。
+// 白天每 5 秒檢查一次，停了就重新播放（這段影片沒有聲音軌，不用點擊也能播）。
+var awakeRestarts = 0;
+setInterval(function () {
+  var v = noSleep && noSleep.noSleepVideo;
+  if (!v || !v.paused || document.body.className === 'sleeping') return;
+  awakeRestarts++;
+  try { var p = v.play(); if (p && p.then) p.then(updateAwakeHint, updateAwakeHint); } catch (e) {}
+}, 5000);
+
 function allowSleep() {
   if (noSleep) { try { noSleep.disable(); } catch (e) {} }
   updateAwakeHint();
