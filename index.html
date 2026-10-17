@@ -97,10 +97,29 @@ function reshuffle() {
   pos = 0;
 }
 
+// 重新讀到清單時：刪掉的照片移出播放順序，新照片（隨機順序）插到下一張開始播
+function mergeOrder(old) {
+  var known = {}, current = {}, i;
+  for (i = 0; i < old.length; i++) known[old[i]] = true;
+  for (i = 0; i < ids.length; i++) current[ids[i]] = true;
+  var fresh = [];
+  for (i = 0; i < ids.length; i++) if (!known[ids[i]]) fresh.push(ids[i]);
+  var rest = [];
+  for (i = pos; i < order.length; i++) if (current[order[i]]) rest.push(order[i]);
+  for (i = fresh.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = fresh[i]; fresh[i] = fresh[j]; fresh[j] = t;
+  }
+  order = fresh.concat(rest);
+  pos = 0;
+}
+
 function loadList(done) {
   api('action=list', function (data) {
     var first = ids.length === 0;
+    var old = ids;
     ids = data.ids || [];
+    if (!first) mergeOrder(old);
     for (var k in data.config) { if (data.config.hasOwnProperty(k)) CONFIG[k] = data.config[k]; }
     tick();
     if (!ids.length) { msg('資料夾裡沒有照片'); setTimeout(function () { loadList(done); }, 60000); return; }
