@@ -64,7 +64,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 28; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 29; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -114,17 +114,18 @@ function shuffleList(a) {
   return a;
 }
 
-// 播過的照片記在 localStorage，重新載入也不會忘；用來判斷哪些是「新照片」
+// 播過的照片記在 localStorage，重新載入也不會忘。不能只保留目前清單的照片：
+// 選了分類時清單只有該分類，會把其他分類的紀錄清掉，換回來時全部被當成新照片。
 var seen = {};
 try { seen = JSON.parse(localStorage.getItem('frameSeen') || '{}') || {}; } catch (e) {}
 function markSeen(id) {
   if (!id || seen[id]) return;
   seen[id] = 1;
-  var keep = {}; // 只保留目前資料夾裡還有的照片
-  for (var i = 0; i < ids.length; i++) if (seen[ids[i]]) keep[ids[i]] = 1;
-  seen = keep;
   try { localStorage.setItem('frameSeen', JSON.stringify(seen)); } catch (e) {}
 }
+
+// 「新照片」：這台裝置沒播過，而且伺服器上所有裝置合計也還沒播過
+function isNew(id) { return !seen[id] && !(plays[id] > 0); }
 
 // 一組最多挑 max 張：還沒播過的優先，其次挑播放次數（所有裝置合計）最少的；
 // 次數相同時隨機，結果維持拍攝時間順序。長期下來每張照片播放次數會趨於平均。
@@ -132,7 +133,7 @@ function pickFromGroup(list, max) {
   if (list.length <= max) return list.slice();
   var cand = [], chosen = {}, i;
   for (i = 0; i < list.length; i++) {
-    cand.push({ id: list[i], seen: seen[list[i]] ? 1 : 0, plays: plays[list[i]] || 0, r: Math.random() });
+    cand.push({ id: list[i], seen: isNew(list[i]) ? 0 : 1, plays: plays[list[i]] || 0, r: Math.random() });
   }
   cand.sort(function (a, b) { return a.seen - b.seen || a.plays - b.plays || a.r - b.r; });
   for (i = 0; i < max; i++) chosen[cand[i].id] = true;
@@ -148,7 +149,7 @@ function buildRound() {
   var fresh = [], rest = [], i, j;
   for (i = 0; i < groups.length; i++) {
     var hasNew = false;
-    for (j = 0; j < groups[i].ids.length; j++) if (!seen[groups[i].ids[j]]) { hasNew = true; break; }
+    for (j = 0; j < groups[i].ids.length; j++) if (isNew(groups[i].ids[j])) { hasNew = true; break; }
     (hasNew ? fresh : rest).push(groups[i]);
   }
   var list = fresh.concat(shuffleList(rest));
@@ -163,7 +164,7 @@ function buildRound() {
 // 有新照片的組：從第一張新照片開始播，播到組尾再接回組頭補播前面的（時間順序不亂）
 function startAtFirstNew(list) {
   for (var i = 0; i < list.length; i++) {
-    if (!seen[list[i]]) return list.slice(i).concat(list.slice(0, i));
+    if (isNew(list[i])) return list.slice(i).concat(list.slice(0, i));
   }
   return list;
 }
