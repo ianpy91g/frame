@@ -35,8 +35,8 @@
     opacity: 0.75; text-shadow: 0 1px 6px rgba(0,0,0,0.9); }
   #pause { position: absolute; left: 36px; bottom: 30px; display: none; opacity: 0.85;
     -webkit-filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); }
-  #catPicker { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.72); display: none; z-index: 10; cursor: default; }
-  #catPicker .box { position: absolute; top: 12%; left: 0; right: 0; margin: 0 auto; width: 420px; max-width: 88%; background: #1f2026; color: #fff; border-radius: 16px; padding: 26px 24px 20px; text-align: center; }
+  #catPicker { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.72); display: none; z-index: 10; cursor: pointer; }
+  #catPicker .box { position: absolute; top: 12%; left: 0; right: 0; margin: 0 auto; width: 420px; max-width: 88%; background: #1f2026; cursor: default; color: #fff; border-radius: 16px; padding: 26px 24px 20px; text-align: center; }
   #catPicker .title { font-size: 22px; margin-bottom: 18px; }
   #catList { max-height: 60vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   #catList div { font-size: 20px; padding: 14px 16px; margin-bottom: 10px; border-radius: 10px; background: #2c2e36; text-align: left; cursor: pointer; }
@@ -64,7 +64,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 31; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 32; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -637,6 +637,13 @@ function hidePicker() {
   clearInterval(pickerTimer);
   $('catPicker').style.display = 'none';
 }
+// 點選單框以外的地方：取消，照目前的相簿繼續播（iOS 要 cursor:pointer 才會對一般區塊送出 click）
+$('catPicker').onclick = function (e) {
+  if (e.target !== this) return;
+  if (e.stopPropagation) e.stopPropagation();
+  hidePicker();
+};
+
 // 點一個相簿：換分類就重新載入（不會再出現選單）；選的是目前的分類就直接繼續，順便開始音樂
 function chooseCategory(e) {
   if (e && e.stopPropagation) e.stopPropagation();
