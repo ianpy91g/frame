@@ -67,7 +67,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 35; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 36; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -186,7 +186,7 @@ function refreshOrder(old) {
 }
 
 // why：這次要清單的原因（start / timer / visible / pageshow / retry），連同狀態回報給伺服器做遠端診斷
-function loadList(done, why) {
+function loadList(done, why, attempt) {
   var report = '&v=' + VERSION + '&sa=' + (navigator.standalone ? 1 : 0) +
     '&up=' + Math.round((new Date().getTime() - loadedAt) / 60000) + '&n=' + ids.length +
     '&pos=' + pos + '/' + order.length + '&aw=' + (isAwake() ? 1 : 0) + '&rs=' + awakeRestarts + '&mu=' + (musicOn ? 1 : 0) + '&why=' + (why || 'timer');
@@ -208,7 +208,7 @@ function loadList(done, why) {
     // 有新照片時，丟掉已預載的舊照片，讓下一張直接是新照片
     if (!first && refreshOrder(old) && !fetching) { pending = null; prefetch(); }
     tick();
-    if (!ids.length) { msg('資料夾裡沒有照片'); setTimeout(function () { loadList(done, 'retry'); }, 60000); return; }
+    if (!ids.length) { msg('這個相簿裡沒有照片'); setTimeout(function () { loadList(done, 'retry'); }, 60000); return; }
     if (first) buildRound();
     if (settingsChanged && !first) {
       buildRound();                                    // 分組、每組張數、播放方式可能變了
@@ -219,8 +219,10 @@ function loadList(done, why) {
     if (done) done();
   }, function (err) {
     if (gen !== catGen) return;
-    if (!started) msg('讀取資料夾失敗，1 分鐘後重試<br><small>' + err + '</small>');
-    setTimeout(function () { loadList(done, 'retry'); }, 60000);
+    // Google 偶爾會暫時出錯：先 3 秒後重試（換相簿時才不會空等），連續失敗 3 次以上才改成 1 分鐘後再試
+    var n = (attempt || 0) + 1, delay = n <= 3 ? 3000 : 60000;
+    if (!started && n > 3) msg('讀取資料夾失敗，1 分鐘後重試<br><small>' + err + '</small>');
+    setTimeout(function () { loadList(done, 'retry', n); }, delay);
   });
 }
 
@@ -602,6 +604,7 @@ function switchCategory(id) {
   paused = false; $('pause').style.display = 'none';
   stopMusic();
   tracks = []; nextTrack = null; trackIdx = 0; fetchingTrack = false;
+  msg('切換到「' + (catNames[id] || '全部') + '」…'); // 第一張照片出現時（advance 裡 msg('')）就消失
   loadList(function () { waiting = true; prefetch(); loadMusic(); }, 'switch');
 }
 
