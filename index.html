@@ -67,7 +67,7 @@
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 36; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 37; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -103,6 +103,8 @@ function api(query, ok, fail) {
     if (data && data.ok) ok(data); else fail((data && data.error) || '未知錯誤');
   };
   s.onerror = function () { if (!finished) { cleanup(); fail('連線失敗'); } };
+  // Google 回傳錯誤網頁而不是資料時，script 會「載入成功」但沒有呼叫 callback：載入完就立刻判定失敗，不用等 60 秒逾時
+  s.onload = function () { setTimeout(function () { if (!finished) { cleanup(); fail('伺服器回應錯誤'); } }, 0); };
   setTimeout(function () { if (!finished) { cleanup(); fail('逾時'); } }, 60000);
   s.src = API + (API.indexOf('?') < 0 ? '?' : '&') + query + (KEY ? '&key=' + encodeURIComponent(KEY) : '') +
     '&callback=' + name + '&_=' + new Date().getTime();

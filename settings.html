@@ -103,6 +103,8 @@ function api(query, ok, fail) {
   function cleanup() { done = true; try { delete window[name]; } catch (e) { window[name] = undefined; } if (s.parentNode) s.parentNode.removeChild(s); }
   window[name] = function (d) { if (done) return; cleanup(); if (d && d.ok) ok(d); else fail((d && d.error) || '未知錯誤'); };
   s.onerror = function () { if (!done) { cleanup(); fail('連線失敗'); } };
+  // Google 回傳錯誤網頁而不是資料時，script 會「載入成功」但沒有呼叫 callback：載入完就立刻判定失敗，不用等 60 秒逾時
+  s.onload = function () { setTimeout(function () { if (!done) { cleanup(); fail('伺服器回應錯誤'); } }, 0); };
   setTimeout(function () { if (!done) { cleanup(); fail('逾時'); } }, 60000);
   s.src = API + (API.indexOf('?') < 0 ? '?' : '&') + query + (KEY ? '&key=' + encodeURIComponent(KEY) : '') +
     '&callback=' + name + '&_=' + new Date().getTime();
