@@ -45,6 +45,20 @@
   #catList div.current { background: #2a6f97; }
   #catList div.current:after { content: '  ✓'; }
   #catHint { color: #aaa; font-size: 15px; margin-top: 14px; min-height: 20px; }
+  #setPanel { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.72); display: none; z-index: 11; cursor: pointer; }
+  #setPanel .box { position: absolute; top: 10%; left: 0; right: 0; margin: 0 auto; width: 440px; max-width: 90%; background: #1f2026;
+    color: #fff; border-radius: 16px; padding: 22px 22px 16px; cursor: default; }
+  #setPanel .title { font-size: 22px; text-align: center; margin-bottom: 14px; }
+  #setPanel .xclose { position: absolute; top: 8px; right: 10px; width: 44px; height: 44px; line-height: 44px; text-align: center; font-size: 24px; color: #aaa; cursor: pointer; }
+  .srow { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-justify-content: space-between; justify-content: space-between;
+    padding: 10px 0; border-top: 1px solid #2e3038; font-size: 18px; }
+  .stepper { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; }
+  .stepper b { min-width: 76px; text-align: center; font-weight: 500; }
+  .stepper button, .tgl { font-size: 20px; border: 0; border-radius: 10px; background: #2c2e36; color: #fff; min-width: 46px; height: 42px; }
+  .tgl { min-width: 70px; font-size: 17px; }
+  .tgl.on { background: #2a6f97; }
+  #setSave { width: 100%; margin-top: 14px; font-size: 19px; border: 0; border-radius: 10px; background: #2a6f97; color: #fff; padding: 12px; }
+  #setHint { color: #aaa; font-size: 14px; text-align: center; margin-top: 10px; min-height: 18px; }
   #pause span { display: inline-block; width: 8px; height: 30px; margin-right: 8px; background: #fff; border-radius: 2px; }
 </style>
 </head>
@@ -61,13 +75,24 @@
   <div id="catHint"></div>
 </div></div>
 <audio id="bgm" preload="auto"></audio>
+<div id="setPanel"><div class="box">
+  <div class="xclose" id="setClose">✕</div>
+  <div class="title">設定</div>
+  <div class="srow"><span>每張照片停留</span><div class="stepper"><button data-k="intervalSec" data-d="-1">−</button><b id="v_intervalSec"></b><button data-k="intervalSec" data-d="1">＋</button></div></div>
+  <div class="srow"><span>顯示拍攝日期時間</span><button class="tgl" data-t="showPhotoDate" id="v_showPhotoDate"></button></div>
+  <div class="srow"><span>夜間開始</span><div class="stepper"><button data-k="sleepFrom" data-d="-1">−</button><b id="v_sleepFrom"></b><button data-k="sleepFrom" data-d="1">＋</button></div></div>
+  <div class="srow"><span>夜間結束</span><div class="stepper"><button data-k="sleepTo" data-d="-1">−</button><b id="v_sleepTo"></b><button data-k="sleepTo" data-d="1">＋</button></div></div>
+  <div class="srow"><span>背景音樂</span><button class="tgl" data-t="music" id="v_music"></button></div>
+  <button id="setSave">儲存</button>
+  <div id="setHint"></div>
+</div></div>
 <div id="pause"><span></span><span></span></div>
 <div id="sleep"><div id="nightMsg"></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
 <script>
 // 網址格式：index.html?api=Apps Script 網頁應用程式網址（結尾 /exec）[&key=密碼]
-var VERSION = 37; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
+var VERSION = 38; // 伺服器設定的 webVersion 比這個大時，相框會自動重新載入新版網頁
 var CONFIG = { intervalSec: 15, shuffle: true, kenBurns: true, blurBackground: true,
   showPhotoDate: true, sleepFrom: 0, sleepTo: 0, refreshListMin: 30 };
 var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -646,6 +671,7 @@ function swipeOf(e) {
   if (!t || new Date().getTime() - touchT > 1000) return 0;
   var dx = t.clientX - touchX, dy = t.clientY - touchY;
   if (dy < -60 && -dy > Math.abs(dx) * 1.5) return 2;                 // 2 = 向上滑（相簿選單）
+  if (dy > 60 && dy > Math.abs(dx) * 1.5) return 3;                   // 3 = 向下滑（設定面板）
   if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return 0;
   return dx < 0 ? 1 : -1;                                             // 1 = 向左滑（下一張），-1 = 向右滑（上一張）
 }
@@ -668,6 +694,7 @@ document.addEventListener('touchend', function (e) {
     keepAwake();
     if (taps) { clearTimeout(tapTimer); tapTimer = null; taps = 0; }
     if (swipe === 2) showPicker(false);
+    else if (swipe === 3) showSettings();
     else if (swipe > 0) showNext();
     else showPrev();
     return;
@@ -682,9 +709,10 @@ document.addEventListener('click', function () { unlockAudio(); if (!pickerOpen(
 var CATEGORY = '';
 try { CATEGORY = localStorage.getItem('frameCategory') || ''; } catch (e) {}
 var pickerTimer = null;
-function pickerOpen() { return $('catPicker').style.display === 'block'; }
+function pickerOpen() { return $('catPicker').style.display === 'block' || $('setPanel').style.display === 'block'; } // 相簿選單或設定面板打開中
 var catNames = {};
 function showPicker(countdown) {
+  hideSettings();
   $('catPicker').style.display = 'block';
   $('catList').innerHTML = '';
   $('catHint').innerHTML = '讀取分類中…';
@@ -728,6 +756,78 @@ $('catPicker').onclick = function (e) {
   unlockAudio();
   hidePicker();
 };
+
+// ---------- 設定面板（向下滑）----------
+// 跟設定頁存同一份設定（action=save），在這台相框立刻生效，其他相框 1 分鐘內同步。
+var INTERVALS = [3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 30, 45, 60, 90, 120], draft = {};
+function showSettings() {
+  hidePicker();
+  draft = { intervalSec: CONFIG.intervalSec, showPhotoDate: !!CONFIG.showPhotoDate,
+    sleepFrom: CONFIG.sleepFrom, sleepTo: CONFIG.sleepTo, music: !!CONFIG.music };
+  renderSettings();
+  $('setHint').innerHTML = '夜間開始和結束設成相同就不啟用';
+  $('setSave').disabled = false;
+  $('setPanel').style.display = 'block';
+}
+function hideSettings() { $('setPanel').style.display = 'none'; }
+function renderSettings() {
+  var h = function (n) { return (n < 10 ? '0' : '') + n + ':00'; };
+  $('v_intervalSec').innerHTML = draft.intervalSec + ' 秒';
+  $('v_sleepFrom').innerHTML = h(draft.sleepFrom);
+  $('v_sleepTo').innerHTML = h(draft.sleepTo);
+  var t = ['showPhotoDate', 'music'];
+  for (var i = 0; i < t.length; i++) {
+    $('v_' + t[i]).innerHTML = draft[t[i]] ? '開' : '關';
+    $('v_' + t[i]).className = draft[t[i]] ? 'tgl on' : 'tgl';
+  }
+}
+function stepSetting(k, d) {
+  if (k === 'intervalSec') {
+    var i = 0;
+    while (i < INTERVALS.length - 1 && INTERVALS[i] < draft.intervalSec) i++; // 目前值（或下一個較大的值）的位置
+    if (d < 0 && INTERVALS[i] >= draft.intervalSec) i--;
+    else if (d > 0 && INTERVALS[i] <= draft.intervalSec) i++;
+    draft.intervalSec = INTERVALS[Math.max(0, Math.min(INTERVALS.length - 1, i))];
+  } else {
+    draft[k] = (draft[k] + d + 24) % 24;
+  }
+  renderSettings();
+}
+// 存好之後在這台相框立刻套用（不用等每分鐘的檢查）
+function applyLocalConfig(values) {
+  for (var k in values) { if (values.hasOwnProperty(k)) CONFIG[k] = values[k]; }
+  loadedApplyId = CONFIG.applyId || 0;
+  tick();
+  if (shown[histPos]) showTaken(shown[histPos].date);
+  if (!CONFIG.music) stopMusic();
+  else if (!tracks.length) loadMusic();
+  else maybeStartMusic();
+  if (started && !paused) { clearTimeout(timer); timer = setTimeout(advance, CONFIG.intervalSec * 1000); }
+}
+(function () {
+  var btns = $('setPanel').getElementsByTagName('button');
+  for (var i = 0; i < btns.length; i++) {
+    if (btns[i].getAttribute('data-k')) {
+      btns[i].onclick = function (e) { e.stopPropagation(); stepSetting(this.getAttribute('data-k'), +this.getAttribute('data-d')); };
+    } else if (btns[i].getAttribute('data-t')) {
+      btns[i].onclick = function (e) { e.stopPropagation(); var k = this.getAttribute('data-t'); draft[k] = !draft[k]; renderSettings(); };
+    }
+  }
+})();
+$('setSave').onclick = function (e) {
+  e.stopPropagation();
+  $('setSave').disabled = true;
+  $('setHint').innerHTML = '儲存中…';
+  api('action=save&data=' + encodeURIComponent(JSON.stringify(draft)), function (d) {
+    applyLocalConfig(d.values);
+    hideSettings();
+  }, function (err) {
+    $('setSave').disabled = false;
+    $('setHint').innerHTML = '儲存失敗，請再按一次（' + err + '）';
+  });
+};
+$('setClose').onclick = function (e) { e.stopPropagation(); hideSettings(); };
+$('setPanel').onclick = function (e) { if (e.target === this) { e.stopPropagation(); hideSettings(); } }; // 點面板外面：取消
 
 // 右上角 ✕：取消，照目前的相簿繼續播
 $('catClose').onclick = function (e) {
